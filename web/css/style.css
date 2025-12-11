@@ -1,0 +1,251 @@
+/* HELIOS — Universe Visualization System */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --bg-dark: #0a0a0f;
+    --bg-darker: #050508;
+    --text-primary: #e0e0e0;
+    --text-secondary: #808080;
+    --accent-gold: #FFD700;
+    --accent-orange: #FF8C00;
+    --border-color: #1a1a20;
+}
+
+body {
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Droid Sans Mono', 'Source Code Pro', monospace;
+    background: linear-gradient(135deg, var(--bg-darker) 0%, var(--bg-dark) 100%);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+}
+
+/* Starfield background */
+body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image:
+        radial-gradient(2px 2px at 20% 30%, white, transparent),
+        radial-gradient(2px 2px at 60% 70%, white, transparent),
+        radial-gradient(1px 1px at 50% 50%, white, transparent),
+        radial-gradient(1px 1px at 80% 10%, white, transparent),
+        radial-gradient(2px 2px at 90% 60%, white, transparent),
+        radial-gradient(1px 1px at 33% 90%, white, transparent),
+        radial-gradient(1px 1px at 15% 80%, white, transparent);
+    background-size: 200% 200%;
+    background-position: 0% 0%, 40% 60%, 50% 50%, 80% 10%, 90% 60%, 33% 90%, 15% 80%;
+    animation: twinkle 120s ease-in-out infinite;
+    opacity: 0.4;
+    pointer-events: none;
+    z-index: 0;
+}
+
+@keyframes twinkle {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 0.6; }
+}
+
+.container {
+    position: relative;
+    z-index: 1;
+    max-width: 1200px;
+    width: 90%;
+    text-align: center;
+    padding: 3rem 2rem;
+}
+
+header {
+    margin-bottom: 3rem;
+}
+
+h1 {
+    font-size: 5rem;
+    font-weight: 300;
+    letter-spacing: 1.5rem;
+    margin-bottom: 0.5rem;
+    background: linear-gradient(135deg, var(--accent-gold), var(--accent-orange));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: 0 0 40px rgba(255, 215, 0, 0.3);
+    animation: titlePulse 4s ease-in-out infinite;
+}
+
+@keyframes titlePulse {
+    0%, 100% { opacity: 0.9; }
+    50% { opacity: 1; }
+}
+
+.subtitle {
+    font-size: 0.9rem;
+    letter-spacing: 0.4rem;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    font-weight: 300;
+}
+
+.sun-container {
+    position: relative;
+    max-width: 600px;
+    margin: 0 auto 3rem;
+    cursor: pointer;
+    transition: transform 0.3s ease;
+}
+
+.sun-container:hover {
+    transform: scale(1.02);
+}
+
+.sun-container:active {
+    transform: scale(0.98);
+}
+
+#sunSVG {
+    width: 100%;
+    height: auto;
+    filter: drop-shadow(0 0 60px rgba(255, 215, 0, 0.4));
+    animation: rotate 240s linear infinite, pulse 8s ease-in-out infinite;
+}
+
+@keyframes rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+    0%, 100% {
+        filter: drop-shadow(0 0 60px rgba(255, 215, 0, 0.4));
+    }
+    50% {
+        filter: drop-shadow(0 0 80px rgba(255, 215, 0, 0.6));
+    }
+}
+
+.click-prompt {
+    position: absolute;
+    bottom: -60px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.75rem;
+    letter-spacing: 0.3rem;
+    color: var(--text-secondary);
+    font-weight: 400;
+    animation: fadeInOut 3s ease-in-out infinite;
+}
+
+@keyframes fadeInOut {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
+
+.pulse {
+    display: inline-block;
+    color: var(--accent-gold);
+    animation: pulseScale 2s ease-in-out infinite;
+    margin-right: 0.5rem;
+}
+
+@keyframes pulseScale {
+    0%, 100% { transform: scale(1); opacity: 0.7; }
+    50% { transform: scale(1.2); opacity: 1; }
+}
+
+footer {
+    border-top: 1px solid var(--border-color);
+    padding-top: 2rem;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 2rem;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    text-align: left;
+}
+
+.label {
+    font-size: 0.65rem;
+    letter-spacing: 0.2rem;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+
+.value {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    letter-spacing: 0.05rem;
+}
+
+.status-pending {
+    color: var(--accent-gold);
+    animation: statusBlink 2s ease-in-out infinite;
+}
+
+@keyframes statusBlink {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+}
+
+/* Click effect */
+.sun-container.clicked {
+    animation: clickEffect 0.6s ease-out;
+}
+
+@keyframes clickEffect {
+    0% { transform: scale(1); }
+    30% { transform: scale(0.95); }
+    60% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    h1 {
+        font-size: 3rem;
+        letter-spacing: 1rem;
+    }
+
+    .subtitle {
+        font-size: 0.7rem;
+        letter-spacing: 0.3rem;
+    }
+
+    .info-grid {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+
+    .click-prompt {
+        font-size: 0.65rem;
+        letter-spacing: 0.2rem;
+    }
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}

@@ -1,0 +1,23 @@
+# Cloudflare Tunnel configuration for Universe
+# Place this at ~/.cloudflared/config.yml on the server
+
+tunnel: universe-server
+credentials-file: ~/.cloudflared/universe-server.json
+
+ingress:
+  # WebSocket stream endpoint
+  - hostname: universe.too.foo
+    path: /stream
+    service: ws://localhost:7878
+
+  # WebSocket control endpoint
+  - hostname: universe.too.foo
+    path: /control
+    service: ws://localhost:7878
+
+  # Main HTTP site
+  - hostname: universe.too.foo
+    service: http://localhost:7878
+
+  # Catch-all (required)
+  - service: http_status:404

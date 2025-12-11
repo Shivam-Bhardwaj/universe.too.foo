@@ -1,0 +1,24 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Node / Vite
+/client/node_modules/
+/client/dist/
+
+# Universe datasets / generated assets
+/universe/
+/data/ephemeris/
+*.bsp
+
+# Large legacy data (keep locally, don't commit)
+/legacy assets/
+
+# Local debug artifacts
+/_debug_frame*.jpg
+
+# IDE / editor
+/.cursor/
+.DS_Store
+
+

@@ -1,0 +1,13 @@
+[package]
+name = "universe-raster"
+version = "0.1.0"
+edition = "2021"
+description = "Tile-based Gaussian Splatting rasterization for Universe"
+
+[dependencies]
+glam = { workspace = true }
+bytemuck = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+approx = "0.5"

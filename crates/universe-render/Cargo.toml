@@ -1,0 +1,26 @@
+[package]
+name = "universe-render"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+universe-core = { path = "../universe-core" }
+universe-data = { path = "../universe-data" }
+universe-sim = { path = "../universe-sim" }
+universe-raster = { path = "../universe-raster" }
+
+# Graphics
+wgpu = "23"
+winit = "0.30"
+pollster = "0.4"
+
+# Math
+glam = { workspace = true }
+nalgebra = { workspace = true }
+bytemuck = { workspace = true }
+
+# Utilities
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+parking_lot = "0.12"

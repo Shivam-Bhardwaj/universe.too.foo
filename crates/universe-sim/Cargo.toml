@@ -1,0 +1,18 @@
+[package]
+name = "universe-sim"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+universe-core = { path = "../universe-core" }
+universe-data = { path = "../universe-data" }
+
+hifitime = { workspace = true }
+nalgebra = { workspace = true }
+glam = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

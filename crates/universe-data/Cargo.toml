@@ -1,0 +1,28 @@
+[package]
+name = "universe-data"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+universe-core = { path = "../universe-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bytemuck = { workspace = true }
+lz4_flex = { workspace = true }
+anyhow = { workspace = true }
+
+# Phase 1 additions
+anise = { workspace = true }
+hifitime = { workspace = true }
+fitsrs = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+rayon = { workspace = true }
+indicatif = { workspace = true }
+csv = { workspace = true }
+flate2 = { workspace = true }
+futures-util = { workspace = true }
+num_cpus = { workspace = true }
+bincode = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

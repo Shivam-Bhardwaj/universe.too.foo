@@ -1,0 +1,30 @@
+[package]
+name = "universe-train"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+universe-core = { path = "../universe-core" }
+universe-data = { path = "../universe-data" }
+
+# Burn ML framework with WGPU backend
+burn = { version = "0.19", features = ["wgpu", "autodiff", "train"] }
+burn-wgpu = "0.19"
+burn-autodiff = "0.19"
+burn-tensor = "0.19"
+
+# Image processing
+image = "0.25"
+
+# Math
+nalgebra = { workspace = true }
+glam = { workspace = true }
+
+# Utilities
+bytemuck = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+indicatif = { workspace = true }
+rayon = { workspace = true }
+rand = "0.8"

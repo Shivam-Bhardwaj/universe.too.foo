@@ -1,0 +1,30 @@
+[package]
+name = "universe-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "universe"
+path = "src/main.rs"
+
+[dependencies]
+universe-core = { path = "../universe-core" }
+universe-data = { path = "../universe-data" }
+universe-train = { path = "../universe-train" }
+universe-sim = { path = "../universe-sim" }
+universe-render = { path = "../universe-render" }
+universe-stream = { path = "../universe-stream" }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Phase 1 additions
+tokio = { workspace = true }
+hifitime = { workspace = true }
+csv = { workspace = true }
+
+# Phase 2 additions (Burn ML framework)
+burn = { version = "0.19", features = ["wgpu", "autodiff"] }
+burn-wgpu = "0.19"
+burn-autodiff = "0.19"
