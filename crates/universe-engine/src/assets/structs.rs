@@ -29,7 +29,7 @@ pub struct KeplerParams {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct PackedResidual {
-    pub data: u32, // High 16: Radial, Low 16: Transverse
+    pub data: u32, // Low 16: Radial, High 16: Transverse
 }
 
 // 3. The Brain (Neural Network Weights)
