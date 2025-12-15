@@ -28,32 +28,15 @@ use camera::{Camera, CameraController};
 // Matches `MAX_ASTEROIDS` in `compile_belt.py` (the loader also reads dynamically).
 const MAX_ASTEROIDS: u32 = 100_000;
 
-fn kepler_params_from_le_bytes(bytes: &[u8]) -> KeplerParams {
-    // Must match `KeplerParams` layout: 7x f32 + 1x u32 (32 bytes), little-endian.
-    debug_assert_eq!(bytes.len(), mem::size_of::<KeplerParams>());
-    let f = |off: usize| f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
-    let u = |off: usize| u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
-
-    KeplerParams {
-        semi_major_axis: f(0),
-        eccentricity: f(4),
-        inclination: f(8),
-        arg_periapsis: f(12),
-        long_asc_node: f(16),
-        mean_anomaly_0: f(20),
-        residual_scale: f(24),
-        count: u(28),
-    }
-}
-
 #[repr(C, align(16))]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct GlobalUniforms {
     view_proj: [[f32; 4]; 4],
     time: f32,
-    // WGSL `vec3<f32>` has 16-byte alignment in uniform buffers; insert explicit padding
-    // so the host-side struct matches Naga's expected size (96 bytes total).
-    _pad_time: [f32; 3],
+    belt_count: u32,
+    // Keep the (time,belt_count,...) block 16-byte aligned.
+    _pad_time: [f32; 2],
+    // Additional padding so the host-side struct matches the WGSL struct size.
     _pad0: [f32; 4],
 }
 
@@ -160,7 +143,8 @@ struct State {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     index_count: u32,
-    num_bodies: u32,
+    belt_count: u32,
+    num_instances: u32,
 
     start: Instant,
 
@@ -233,40 +217,63 @@ impl State {
         let (depth_texture, depth_view) = create_depth_texture(&device, config.width, config.height);
 
         // 2) Asset loading
-        let (_eros_orbit_params, residuals) = AssetLoader::load_orbit_data("assets/eros")
+        let (eros_orbit_params, residuals) = AssetLoader::load_orbit_data("assets/eros")
             .context("Failed to load orbit data (assets/eros_*.{json,bin})")?;
         let neural_weights = AssetLoader::load_neural_brain("assets/neural_decoder.bin")
             .context("Failed to load neural weights (assets/neural_decoder.bin)")?;
 
         // 3) GPU buffers
-        // --- 1. LOAD REAL BELT ---
-        let mut orbit_data = fs::read("assets/real_belt.bin")
+        // --- 1. LOAD REAL BELT + JUPITER (Eros is instance 0) ---
+        let mut belt_data = fs::read("assets/real_belt.bin")
             .context("Failed to read assets/real_belt.bin (run `python compile_belt.py` first)")?;
         let bytes_per_orbit = mem::size_of::<KeplerParams>();
         ensure!(
-            orbit_data.len() % bytes_per_orbit == 0,
+            belt_data.len() % bytes_per_orbit == 0,
             "assets/real_belt.bin length {} is not a multiple of {} bytes",
-            orbit_data.len(),
+            belt_data.len(),
             bytes_per_orbit
         );
 
-        let mut num_bodies = (orbit_data.len() / bytes_per_orbit) as u32;
+        let mut belt_count = (belt_data.len() / bytes_per_orbit) as u32;
         ensure!(
-            num_bodies > 0,
+            belt_count > 0,
             "assets/real_belt.bin contains 0 asteroids (file is empty)"
         );
 
         // Safety clamp (keeps runtime memory usage predictable).
-        if num_bodies > MAX_ASTEROIDS {
-            num_bodies = MAX_ASTEROIDS;
-            orbit_data.truncate(num_bodies as usize * bytes_per_orbit);
+        if belt_count > MAX_ASTEROIDS {
+            belt_count = MAX_ASTEROIDS;
+            belt_data.truncate(belt_count as usize * bytes_per_orbit);
         }
 
-        println!("Loaded {} Real Asteroids", num_bodies);
+        println!("Loaded {} Real Asteroids (belt)", belt_count);
+
+        // Jupiter: simple mean-elements approximation (good enough for resonance visualization).
+        let jupiter = KeplerParams {
+            semi_major_axis: 5.204, // AU
+            eccentricity: 0.048,
+            inclination: 1.303_f32.to_radians(),
+            arg_periapsis: 0.0,
+            long_asc_node: 0.0,
+            mean_anomaly_0: 0.0,
+            residual_scale: 0.0,
+            count: 0,
+        };
+
+        // Orbit buffer layout:
+        // [0] = Eros (with neural deformation)
+        // [1..=belt_count] = MPCORB belt
+        // [last] = Jupiter
+        let num_instances = 1u32 + belt_count + 1u32;
+        let mut orbit_blob =
+            Vec::with_capacity(num_instances as usize * mem::size_of::<KeplerParams>());
+        orbit_blob.extend_from_slice(bytemuck::bytes_of(&eros_orbit_params));
+        orbit_blob.extend_from_slice(&belt_data);
+        orbit_blob.extend_from_slice(bytemuck::bytes_of(&jupiter));
 
         let orbit_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Orbit Params Storage Buffer"),
-            contents: &orbit_data,
+            contents: &orbit_blob,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -284,9 +291,7 @@ impl State {
 
         // Aim the starting camera at the asteroid's actual orbit position at t=0,
         // otherwise it's easy to start out looking at empty space (black screen).
-        let first_orbit =
-            kepler_params_from_le_bytes(&orbit_data[0..mem::size_of::<KeplerParams>()]);
-        let world_center_t0 = orbit_pos_kepler(&first_orbit, 0.0);
+        let world_center_t0 = orbit_pos_kepler(&eros_orbit_params, 0.0);
 
         let mut camera = Camera {
             eye: world_center_t0 + Vec3::new(0.0, 0.05, 0.25),
@@ -305,7 +310,8 @@ impl State {
         let global = GlobalUniforms {
             view_proj: camera.build_view_projection_matrix().to_cols_array_2d(),
             time: 0.0,
-            _pad_time: [0.0; 3],
+            belt_count,
+            _pad_time: [0.0; 2],
             _pad0: [0.0; 4],
         };
 
@@ -486,7 +492,8 @@ impl State {
             vertex_buffer,
             index_buffer,
             index_count,
-            num_bodies,
+            belt_count,
+            num_instances,
             start: Instant::now(),
             camera,
             camera_controller,
@@ -520,7 +527,8 @@ impl State {
         let globals = GlobalUniforms {
             view_proj: view_proj.to_cols_array_2d(),
             time: time_days,
-            _pad_time: [0.0; 3],
+            belt_count: self.belt_count,
+            _pad_time: [0.0; 2],
             _pad0: [0.0; 4],
         };
 
@@ -588,7 +596,7 @@ impl State {
             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
             // Draw the real belt (instance count determined by assets/real_belt.bin).
-            rpass.draw_indexed(0..self.index_count, 0, 0..self.num_bodies);
+            rpass.draw_indexed(0..self.index_count, 0, 0..self.num_instances);
         }
 
         self.queue.submit(Some(encoder.finish()));
