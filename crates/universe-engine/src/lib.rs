@@ -13,6 +13,11 @@ pub mod streaming;
 pub mod renderer;
 pub mod http_adapter;
 
+pub mod assets {
+    pub mod structs;
+    pub mod loader;
+}
+
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
@@ -20,3 +25,4 @@ pub mod wasm;
 pub use camera::*;
 pub use streaming::*;
 pub use renderer::*;
+

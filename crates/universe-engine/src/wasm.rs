@@ -109,3 +109,6 @@ pub fn parse_cell(bytes: js_sys::Uint8Array) -> Result<WasmCell, JsValue> {
 pub fn init() {
     console_error_panic_hook::set_once();
 }
+
+
+

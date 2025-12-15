@@ -58,3 +58,6 @@ impl CompressionMetrics {
         self.decode_time_ms < 1.0 && self.compression_ratio < 0.5
     }
 }
+
+
+

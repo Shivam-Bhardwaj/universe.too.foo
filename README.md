@@ -2,6 +2,39 @@
 
 Server-rendered, astronomical-scale visualization with a streamable “universe dataset” (HLG cells) and a browser client.
 
+## Neural Planetarium (MPCORB real asteroid belt)
+
+This repo also includes a standalone **desktop** renderer (crate `neural-planetarium`, run from repo root) that loads the Minor Planet Center orbit catalog (MPCORB) and renders:
+- **Eros** (instance 0, neural deformation)
+- **Main belt** (MPCORB elements)
+- **Jupiter** (simple mean-elements approximation for resonance visualization)
+
+### Build the real belt assets (local)
+
+The large MPCORB inputs/outputs are **not committed** (they live under `assets/` which is gitignored).
+
+1) Download MPCORB (~200–300MB):
+
+```bash
+curl -L --fail -o assets/MPCORB.DAT "https://minorplanetcenter.net/iau/MPCORB/MPCORB.DAT"
+```
+
+2) Compile a belt binary (defaults to 100k asteroids):
+
+```bash
+python3 compile_belt.py
+```
+
+This writes `assets/real_belt.bin` in the same binary layout as the Rust `KeplerParams` struct.
+
+3) Run the desktop app:
+
+```bash
+cargo run --release
+```
+
+You should see the belt with **Kirkwood gaps** (resonances) and non-spherical “rocky” bodies (cheap per-instance deformation for the belt).
+
 ## Quickstart (local)
 
 ### 1) Build a non-empty universe dataset
