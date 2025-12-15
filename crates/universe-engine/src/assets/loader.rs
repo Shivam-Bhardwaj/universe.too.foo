@@ -43,6 +43,8 @@ impl AssetLoader {
             count: meta.count,
             _pad1: 0.0,
             _pad2: 0.0,
+            _pad3: 0.0,
+            _pad4: 0.0,
         };
 
         // 2. Load Residuals (Binary)

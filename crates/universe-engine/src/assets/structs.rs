@@ -20,6 +20,8 @@ pub struct KeplerParams {
     pub count: u32,
     pub _pad1: f32,
     pub _pad2: f32,
+    pub _pad3: f32,
+    pub _pad4: f32,
 }
 
 // 2. The Surprise (Compressed Residuals)

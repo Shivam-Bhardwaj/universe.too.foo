@@ -24,6 +24,8 @@ struct KeplerParams {
     // Match the Rust struct's 16-byte aligned size (48 bytes).
     _pad1: f32,
     _pad2: f32,
+    _pad3: f32,
+    _pad4: f32,
 }
 
 @group(0) @binding(0) var<uniform> orbit: KeplerParams;
