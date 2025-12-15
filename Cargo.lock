@@ -4838,6 +4838,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "neural-planetarium"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "glam 0.29.3",
+ "pollster",
+ "serde",
+ "serde_json",
+ "wgpu 23.0.1",
+ "winit",
+]
+
+[[package]]
 name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

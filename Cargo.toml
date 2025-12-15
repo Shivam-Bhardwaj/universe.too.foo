@@ -1,3 +1,18 @@
+[package]
+name = "neural-planetarium"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wgpu = "23"
+winit = "0.30"
+pollster = "0.4"
+anyhow = { workspace = true }
+bytemuck = { workspace = true }
+glam = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
 [workspace]
 resolver = "2"
 members = ["crates/*"]

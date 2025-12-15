@@ -12,13 +12,15 @@ use winit::{
     window::{Window, WindowId},
 };
 
+mod geometry;
+
 mod assets {
     pub mod loader;
     pub mod structs;
 }
 
 use crate::assets::loader::AssetLoader;
-use crate::assets::structs::{KeplerParams, PackedResidual};
+use crate::assets::structs::PackedResidual;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -99,6 +101,8 @@ struct State {
 
     global_buffer: wgpu::Buffer,
     vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    index_count: u32,
 
     start: Instant,
 }
@@ -204,23 +208,28 @@ impl State {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        // Simple triangle geometry (3 verts) for the required draw(0..3, 0..1000)
-        let verts = [
-            Vertex {
-                position: [-0.5, -0.5, 0.0],
-            },
-            Vertex {
-                position: [0.5, -0.5, 0.0],
-            },
-            Vertex {
-                position: [0.0, 0.5, 0.0],
-            },
-        ];
+        // Geometry: procedural sphere (better visual sanity check than a single triangle)
+        let (positions, indices) = geometry::generate_uv_sphere(geometry::SphereOptions {
+            radius: 1.0,
+            stacks: 24,
+            slices: 48,
+        });
+        let verts: Vec<Vertex> = positions
+            .into_iter()
+            .map(|p| Vertex { position: p })
+            .collect();
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Triangle Vertex Buffer"),
-            contents: bytemuck::cast_slice(&verts),
+            label: Some("Sphere Vertex Buffer"),
+            contents: bytemuck::cast_slice(verts.as_slice()),
             usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let index_count = indices.len() as u32;
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Sphere Index Buffer"),
+            contents: bytemuck::cast_slice(indices.as_slice()),
+            usage: wgpu::BufferUsages::INDEX,
         });
 
         // 4) Pipeline
@@ -338,7 +347,7 @@ impl State {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None, // be robust to any winding mistakes in prototype mesh
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
@@ -368,6 +377,8 @@ impl State {
             bind_group_1,
             global_buffer,
             vertex_buffer,
+            index_buffer,
+            index_count,
             start: Instant::now(),
         })
     }
@@ -458,9 +469,10 @@ impl State {
             rpass.set_bind_group(0, &self.bind_group_0, &[]);
             rpass.set_bind_group(1, &self.bind_group_1, &[]);
             rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
-            // Required draw call: 3 verts, 1000 instances
-            rpass.draw(0..3, 0..1000);
+            // Draw 1,000 instanced asteroids
+            rpass.draw_indexed(0..self.index_count, 0, 0..1000);
         }
 
         self.queue.submit(Some(encoder.finish()));

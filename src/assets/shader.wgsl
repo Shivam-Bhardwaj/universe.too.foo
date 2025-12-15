@@ -86,9 +86,10 @@ fn sign_extend_i16(x: u32) -> i32 {
 }
 
 fn unpack_residual(packed_val: u32) -> vec2<f32> {
-    // Spec: High 16 = Radial, Low 16 = Transverse
-    let r_u = (packed_val >> 16u) & 0xFFFFu;
-    let t_u = packed_val & 0xFFFFu;
+    // Matches Python `struct.pack('hh', radial, transverse)` on little-endian:
+    // Low 16 = Radial, High 16 = Transverse
+    let r_u = packed_val & 0xFFFFu;
+    let t_u = (packed_val >> 16u) & 0xFFFFu;
 
     let r_q = sign_extend_i16(r_u);
     let t_q = sign_extend_i16(t_u);
