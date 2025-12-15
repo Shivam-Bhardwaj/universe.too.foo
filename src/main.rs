@@ -22,12 +22,15 @@ mod assets {
 use crate::assets::loader::AssetLoader;
 use crate::assets::structs::PackedResidual;
 
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct GlobalUniforms {
     view_proj: [[f32; 4]; 4],
     time: f32,
-    _pad0: [f32; 3],
+    // WGSL `vec3<f32>` has 16-byte alignment in uniform buffers; insert explicit padding
+    // so the host-side struct matches Naga's expected size (96 bytes total).
+    _pad_time: [f32; 3],
+    _pad0: [f32; 4],
 }
 
 #[repr(C)]
@@ -199,7 +202,8 @@ impl State {
         let global = GlobalUniforms {
             view_proj: build_view_proj(size).to_cols_array_2d(),
             time: 0.0,
-            _pad0: [0.0; 3],
+            _pad_time: [0.0; 3],
+            _pad0: [0.0; 4],
         };
 
         let global_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -405,7 +409,8 @@ impl State {
         let globals = GlobalUniforms {
             view_proj: build_view_proj(self.size).to_cols_array_2d(),
             time: time_days,
-            _pad0: [0.0; 3],
+            _pad_time: [0.0; 3],
+            _pad0: [0.0; 4],
         };
 
         self.queue
