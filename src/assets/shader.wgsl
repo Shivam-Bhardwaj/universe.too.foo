@@ -1,6 +1,6 @@
 // Neural Planetarium Shader (Production)
 //
-// Group 0: Orbit Params (Uniform) + Residuals (Storage) + Neural Weights (Storage)
+// Group 0: Orbit Params (Storage) + Residuals (Storage) + Neural Weights (Storage)
 // Group 1: Global Scene Data (Uniform)
 
 // --- STRUCTS ---
@@ -33,7 +33,7 @@ struct VertexOutput {
 }
 
 // --- BINDINGS ---
-@group(0) @binding(0) var<uniform> orbit: KeplerParams;
+@group(0) @binding(0) var<storage, read> orbits: array<KeplerParams>;
 @group(0) @binding(1) var<storage, read> residuals: array<u32>;
 @group(0) @binding(2) var<storage, read> neural_weights: array<f32>; // The Brain
 
@@ -120,12 +120,12 @@ fn sign_extend_i16(x: u32) -> i32 {
     return (bitcast<i32>(x << 16u)) >> 16;
 }
 
-fn unpack_residual(packed_val: u32) -> vec2<f32> {
+fn unpack_residual(packed_val: u32, residual_scale: f32) -> vec2<f32> {
     let r_u = packed_val & 0xFFFFu;
     let t_u = (packed_val >> 16u) & 0xFFFFu;
     let r_q = sign_extend_i16(r_u);
     let t_q = sign_extend_i16(t_u);
-    return vec2<f32>(f32(r_q), f32(t_q)) * orbit.residual_scale;
+    return vec2<f32>(f32(r_q), f32(t_q)) * residual_scale;
 }
 
 fn solve_kepler(M: f32, e: f32) -> f32 {
@@ -136,7 +136,7 @@ fn solve_kepler(M: f32, e: f32) -> f32 {
     return E;
 }
 
-fn get_orbit_pos_with_residuals(t: f32) -> vec3<f32> {
+fn get_orbit_pos_with_residuals(t: f32, orbit: KeplerParams) -> vec3<f32> {
     // A. Kepler
     let n = 0.017202 / pow(orbit.semi_major_axis, 1.5);
     let M = orbit.mean_anomaly_0 + n * t;
@@ -147,11 +147,30 @@ fn get_orbit_pos_with_residuals(t: f32) -> vec3<f32> {
     let x_orb = a * (cos(E) - e);
     let y_orb = a * sqrt(1.0 - e * e) * sin(E);
 
-    // B. Rotate to 3D (prototype: planar)
+    // B. Rotate to 3D Space (Euler Angles: w, i, O)
     let w = orbit.arg_periapsis;
-    let x_w = x_orb * cos(w) - y_orb * sin(w);
-    let y_w = x_orb * sin(w) + y_orb * cos(w);
-    let base_pos = vec3<f32>(x_w, y_w, 0.0);
+    let i = orbit.inclination;
+    let O = orbit.long_asc_node;
+
+    let cw = cos(w); let sw = sin(w);
+    let ci = cos(i); let si = sin(i);
+    let cO = cos(O); let sO = sin(O);
+
+    // Rotate by Argument of Periapsis (w) around Z
+    let x1 = x_orb * cw - y_orb * sw;
+    let y1 = x_orb * sw + y_orb * cw;
+
+    // Rotate by Inclination (i) around X
+    let x2 = x1;
+    let y2 = y1 * ci;
+    let z2 = y1 * si;
+
+    // Rotate by Longitude of Ascending Node (O) around Z
+    let x_final = x2 * cO - y2 * sO;
+    let y_final = x2 * sO + y2 * cO;
+    let z_final = z2;
+
+    let base_pos = vec3<f32>(x_final, y_final, z_final);
 
     // C. Apply Shannon residuals
     if (orbit.count == 0u) {
@@ -163,12 +182,20 @@ fn get_orbit_pos_with_residuals(t: f32) -> vec3<f32> {
     let idx_1 = (idx_0 + 1u) % orbit.count;
     let mix_factor = fract(idx_f);
 
-    let res0 = unpack_residual(residuals[idx_0]);
-    let res1 = unpack_residual(residuals[idx_1]);
+    let res0 = unpack_residual(residuals[idx_0], orbit.residual_scale);
+    let res1 = unpack_residual(residuals[idx_1], orbit.residual_scale);
     let res = mix(res0, res1, mix_factor);
 
+    // Apply Radial/Transverse in 3D
     let r_dir = normalize(base_pos);
-    let t_dir = vec3<f32>(-r_dir.y, r_dir.x, 0.0);
+    var up = vec3<f32>(0.0, 0.0, 1.0);
+    var t_dir = cross(up, r_dir);
+    // Fallback if r_dir ~ up (avoid near-zero normalization)
+    if (dot(t_dir, t_dir) < 1e-8) {
+        up = vec3<f32>(1.0, 0.0, 0.0);
+        t_dir = cross(up, r_dir);
+    }
+    t_dir = normalize(t_dir);
     return base_pos + (r_dir * res.x) + (t_dir * res.y);
 }
 
@@ -178,24 +205,41 @@ fn get_orbit_pos_with_residuals(t: f32) -> vec3<f32> {
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
 
-    // 1. NEURAL DEFORMATION
-    let neural_data = run_neural_net(in.position);
-    let rgb = neural_data.xyz;
-    let displacement = neural_data.w;
+    let orbit = orbits[in.instance_idx];
 
-    // Displace vertex along its normal
-    let local_pos_displaced = in.position + (normalize(in.position) * displacement * 0.1);
+    // 1. LOCAL SHAPE
+    // Instance 0 is "Eros" with full neural deformation.
+    // The rest of the belt uses a cheap sphere so 1000 instances stays fast.
+    var rgb = vec3<f32>(0.8, 0.8, 0.8);
+    var local_pos = in.position;
+
+    if (in.instance_idx == 0u) {
+        // NEURAL DEFORMATION
+        let neural_data = run_neural_net(in.position);
+        rgb = neural_data.xyz;
+        let displacement = neural_data.w;
+
+        // Displace vertex along its normal
+        // Increased multiplier to make craters clearly visible
+        // Trained displacement range is ~[-0.5, 0.5], so 2.0 gives good visibility
+        let displacement_strength = 2.0;
+        local_pos = in.position + (normalize(in.position) * displacement * displacement_strength);
+    }
 
     // 2. ORBITAL POSITION
-    let t = globals.time + f32(in.instance_idx) * 50.0;
-    let world_center = get_orbit_pos_with_residuals(t);
+    let t = globals.time;
+    let world_center = get_orbit_pos_with_residuals(t, orbit);
 
     // 3. FINAL TRANSFORM
-    let world_pos = (local_pos_displaced * 0.02) + world_center;
+    var scale = 0.003;
+    if (in.instance_idx == 0u) {
+        scale = 0.02;
+    }
+    let world_pos = (local_pos * scale) + world_center;
 
     out.clip_position = globals.view_proj * vec4<f32>(world_pos, 1.0);
     out.color = rgb;
-    out.normal = normalize(local_pos_displaced);
+    out.normal = normalize(local_pos);
 
     return out;
 }
@@ -206,3 +250,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let diff = max(dot(in.normal, light_dir), 0.2);
     return vec4<f32>(in.color * diff, 1.0);
 }
+
+

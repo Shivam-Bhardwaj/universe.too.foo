@@ -13,13 +13,56 @@ function vec3Sub(a: Vec3d, b: Vec3d): Vec3d {
     return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
 }
 
+interface Spherical {
+    r: number;
+    theta: number;
+    phi: number;
+}
+
+function toSpherical(v: Vec3d): Spherical {
+    const r = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+    if (r === 0) return { r: 0, theta: 0, phi: 0 };
+    return {
+        r,
+        theta: Math.atan2(v.x, v.z),
+        phi: Math.asin(v.y / r)
+    };
+}
+
+function toCartesian(s: Spherical): Vec3d {
+    const cosPhi = Math.cos(s.phi);
+    const sinPhi = Math.sin(s.phi);
+    const cosTheta = Math.cos(s.theta);
+    const sinTheta = Math.sin(s.theta);
+    return {
+        x: s.r * cosPhi * sinTheta,
+        y: s.r * sinPhi,
+        z: s.r * cosPhi * cosTheta
+    };
+}
+
+function lerpSpherical(a: Spherical, b: Spherical, t: number): Spherical {
+    // Linear interpolation of r and phi
+    const r = lerp(a.r, b.r, t);
+    const phi = lerp(a.phi, b.phi, t);
+
+    // Shortest path interpolation for theta
+    let dTheta = b.theta - a.theta;
+    while (dTheta > Math.PI) dTheta -= 2 * Math.PI;
+    while (dTheta < -Math.PI) dTheta += 2 * Math.PI;
+
+    const theta = a.theta + dTheta * t;
+
+    return { r, theta, phi };
+}
+
 function lerp(a: number, b: number, t: number): number {
     return a + (b - a) * t;
 }
 
 export type ControlMode = 'flight' | 'orbitFocus';
 
-export type JumpPhase = 'inactive' | 'accelerating' | 'cruising' | 'easing';
+export type JumpPhase = 'inactive' | 'aligning' | 'accelerating' | 'cruising' | 'easing';
 
 export interface JumpState {
     phase: JumpPhase;
@@ -34,6 +77,11 @@ export interface JumpState {
     easeStartDistAbsM: number;
     /** Absolute (meter) distance from target center at which the jump stops. */
     stopDistAbsM: number;
+    // Alignment state
+    targetYaw: number;
+    targetPitch: number;
+    startYaw: number;
+    startPitch: number;
 }
 
 export interface OrbitFocusState {
@@ -71,6 +119,10 @@ export class FlightControls {
         maxSpeedMps: 0,
         easeStartDistAbsM: 0,
         stopDistAbsM: 0,
+        targetYaw: 0,
+        targetPitch: 0,
+        startYaw: 0,
+        startPitch: 0,
     };
 
     // Saved camera settings (restored after jump)
@@ -80,10 +132,11 @@ export class FlightControls {
     // Jump tuning
     private readonly JUMP_TRAVEL_TIME = 8.0;   // faster warp speed
     private readonly JUMP_ACCEL_TIME = 3.0;    // faster ramp-up
+    private readonly ALIGN_DURATION_S = 0.3;   // time to rotate to target
     private readonly ACCEL_DURATION_S = 2.0;   // time to reach cruise
     private readonly STOP_FRAC_DEFAULT = 0.005;      // 0.5% of start distance (fallback)
-    private readonly EASE_FRAC_DEFAULT = 0.10;       // start easing at 10% of start distance (fallback)
-    private readonly VIEW_RADIUS_MULT = 20.0;        // stop at ~N radii for known bodies
+    private readonly EASE_FRAC_DEFAULT = 0.25;       // start easing at 25% of start distance (earlier)
+    private readonly VIEW_RADIUS_MULT = 30.0;        // stop at ~N radii (farther out)
     private readonly STOP_MIN_M = 1e7;               // never stop closer than 10,000 km
 
     // Throttle (signed, forward/back)
@@ -96,7 +149,7 @@ export class FlightControls {
     private lastPinchDistance = 0.0;
     private pinchActive = false;
 
-    constructor(private camera: LocalCamera) {}
+    constructor(private camera: LocalCamera) { }
 
     getMode(): ControlMode {
         return this.mode;
@@ -172,11 +225,29 @@ export class FlightControls {
         const durationS = lerp(3.0, 10.0, t); // min 3s, max 10s
         const maxSpeedMps = dist / durationS;
 
-        // Auto-orient camera toward target
-        this.camera.lookAt(targetPos);
+        // Compute target angles
+        const { yaw, pitch } = this.camera.computeLookAtAngles(targetPos);
 
-        // Initialize jump state
-        this.jumpState.phase = 'accelerating';
+        // Initialize jump state with alignment check
+        let phase: JumpPhase = 'aligning';
+
+        const startYaw = this.camera.getYaw();
+        const startPitch = this.camera.getPitch();
+
+        let dYaw = yaw - startYaw;
+        // Normalize to [-PI, PI]
+        while (dYaw > Math.PI) dYaw -= 2 * Math.PI;
+        while (dYaw < -Math.PI) dYaw += 2 * Math.PI;
+
+        const dPitch = Math.abs(pitch - startPitch);
+        const ALIGN_EPS = 0.02; // ~1 degree
+
+        if (Math.abs(dYaw) < ALIGN_EPS && dPitch < ALIGN_EPS) {
+            phase = 'accelerating';
+            console.log('[Jump] Skipping alignment (delta small)');
+        }
+
+        this.jumpState.phase = phase;
         this.jumpState.targetPos = { ...targetPos };
         this.jumpState.targetName = targetName;
         this.jumpState.startPos = { ...this.camera.position };
@@ -186,6 +257,16 @@ export class FlightControls {
         this.jumpState.maxSpeedMps = maxSpeedMps;
         this.jumpState.stopDistAbsM = stopDistAbsM;
         this.jumpState.easeStartDistAbsM = easeStartDistAbsM;
+
+        this.jumpState.targetYaw = yaw;
+        this.jumpState.targetPitch = pitch;
+        this.jumpState.startYaw = startYaw;
+        this.jumpState.startPitch = startPitch;
+
+        // Force immediate lookAt if skipping alignment, to ensure perfect lock
+        if (phase === 'accelerating') {
+            this.camera.lookAt(targetPos);
+        }
 
         // Set throttle to start ramping up
         this.throttle = 0.0;
@@ -394,8 +475,10 @@ export class FlightControls {
         const now = performance.now() / 1000;
         const elapsed = now - this.jumpState.startTime;
 
-        // Lock orientation: always face the target
-        this.camera.lookAt(this.jumpState.targetPos);
+        // Lock orientation ONLY if not aligning (aligning handles its own rotation)
+        if (this.jumpState.phase !== 'aligning') {
+            this.camera.lookAt(this.jumpState.targetPos);
+        }
 
         // Compute current distance to target
         const toTarget = vec3Sub(this.jumpState.targetPos, this.camera.position);
@@ -433,6 +516,33 @@ export class FlightControls {
         let speedFrac = 0.0;
 
         switch (this.jumpState.phase) {
+            case 'aligning': {
+                const t = clamp(elapsed / this.ALIGN_DURATION_S, 0, 1);
+                // Ease-in-out for rotation
+                const smoothT = t * t * (3 - 2 * t);
+
+                // Interpolate pitch
+                const p = lerp(this.jumpState.startPitch, this.jumpState.targetPitch, smoothT);
+
+                // Interpolate yaw (shortest path)
+                let dYaw = this.jumpState.targetYaw - this.jumpState.startYaw;
+                // Normalize to [-PI, PI]
+                dYaw = ((dYaw + Math.PI) % (2 * Math.PI)) - Math.PI; // Standard modulo behavior fix needed?
+                // Actually JS % operator can return negative.
+                // Proper wrap:
+                while (dYaw > Math.PI) dYaw -= 2 * Math.PI;
+                while (dYaw < -Math.PI) dYaw += 2 * Math.PI;
+
+                const y = this.jumpState.startYaw + dYaw * smoothT;
+                this.camera.setYawPitch(y, p);
+
+                if (elapsed >= this.ALIGN_DURATION_S) {
+                    this.jumpState.phase = 'accelerating';
+                    this.jumpState.startTime = now; // reset timer for accel phase
+                }
+                break;
+            }
+
             case 'accelerating': {
                 // Ramp speed from 0 to 1 over ACCEL_DURATION_S
                 const t = clamp(elapsed / this.ACCEL_DURATION_S, 0, 1);
@@ -470,7 +580,11 @@ export class FlightControls {
                 // Map dist from [stopDistAbs, easeStartDistAbs] to speed [0, 1]
                 const easeRange = Math.max(1e-6, easeStartDistAbs - stopDistAbs);
                 const easeProg = clamp((dist - stopDistAbs) / easeRange, 0, 1);
-                speedFrac = easeProg * 0.5; // reduce max during ease
+
+                // Non-linear easing: square the progress to make it taper aggressively
+                // easeProg goes from 1.0 (start of ease) -> 0.0 (stop shell)
+                // Squaring means we spend more time at lower speeds.
+                speedFrac = Math.pow(easeProg, 2.0) * 0.8;
                 this.throttle = speedFrac;
 
                 // Gradually restore camera settings
@@ -484,28 +598,93 @@ export class FlightControls {
         // Compute jump speed in m/s
         const jumpSpeedMps = this.jumpState.maxSpeedMps * speedFrac;
 
-        // Compute step distance for this frame, clamped to never go inside stop shell
-        const step = Math.min(jumpSpeedMps * dt, remainingToStop);
-
-        // Move directly toward target (if we have distance to cover)
+        // Calculate movement step in Spherical coordinates (unused legacy step logic removed)
         if (dist > 1e-6) {
-            const dir = {
-                x: toTarget.x / dist,
-                y: toTarget.y / dist,
-                z: toTarget.z / dist,
-            };
+            // Compute desired position at new time (t + dt) via spherical interpolation?
+            // No, that's complex because we are speed-based, not time-based.
+            // But we need to follow the curve.
 
-            this.camera.position.x += dir.x * step;
-            this.camera.position.y += dir.y * step;
-            this.camera.position.z += dir.z * step;
+            // Alternative: Map 'progress' from 0 (Start) to 1 (Target)
+            // But we don't have a reliable 'progress' because speed varies.
+            // We can approximate:
+            // Let's project current position onto the start->target path? No.
 
-            // After moving, check if we're now within epsilon of stop shell
-            const newRemainingToStop = remainingToStop - step;
-            if (newRemainingToStop <= eps) {
-                // Snap to exactly the stop shell
-                this.camera.position.x = this.jumpState.targetPos.x - dir.x * stopDistAbs;
-                this.camera.position.y = this.jumpState.targetPos.y - dir.y * stopDistAbs;
-                this.camera.position.z = this.jumpState.targetPos.z - dir.z * stopDistAbs;
+            // Simple approach:
+            // Track 'progress' explicitly based on distance covered?
+            // Or re-calculate position based on a 't' parameter?
+
+            // Let's rely on 'elapsed' and duration? 
+            // The jump has a defined duration `durationS`.
+            // We can map `elapsed / durationS` to approximate t, but apply the speed profile.
+
+            // Actually, we already integrate position. That works for straight lines.
+            // For a curve, integrating velocity vector is hard if the vector changes direction.
+            // BETTER: Calculate position strictly as a function of 't' (parameter 0-1) 
+            // where 't' advances based on our speed profile.
+
+            // Let's store 'currentT' in JumpState.
+            if (typeof (this.jumpState as any).currentT === 'undefined') {
+                (this.jumpState as any).currentT = 0;
+            }
+
+            // Calculate dt in parameter space.
+            // total_dist approx = arc length? Or just linear start-end dist?
+            // Let's assume start->end linear dist for speed calc to keep it simple.
+            const totalLinearDist = this.jumpState.startDist;
+
+            // speedMps = maxSpeed * speedFrac
+            // dt_linear = speedMps * dt
+            // dt_param = dt_linear / totalLinearDist
+
+            let dtParam = 0;
+            if (totalLinearDist > 0) {
+                dtParam = jumpSpeedMps * dt / totalLinearDist;
+            }
+
+            let t = (this.jumpState as any).currentT + dtParam;
+            if (t > 1) t = 1;
+            (this.jumpState as any).currentT = t;
+
+            // Convert start/end to spherical
+            const startSph = toSpherical(this.jumpState.startPos);
+            const targetSph = toSpherical(this.jumpState.targetPos);
+
+            // Interpolate
+            const currentSph = lerpSpherical(startSph, targetSph, t);
+            const nextPos = toCartesian(currentSph);
+
+            // Update position
+            this.camera.position.x = nextPos.x;
+            this.camera.position.y = nextPos.y;
+            this.camera.position.z = nextPos.z;
+
+            // Check completion: t=1 or close enough to stop shell
+            // Actually, strict t=1 is arrival at center.
+            // We need to stop at stopDistAbsM from center.
+            // dist = r ? No, distance to center.
+            // We can check cartesian dist to target.
+
+            const dx = this.jumpState.targetPos.x - this.camera.position.x;
+            const dy = this.jumpState.targetPos.y - this.camera.position.y;
+            const dz = this.jumpState.targetPos.z - this.camera.position.z;
+            const distRemaining = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+            if (distRemaining <= stopDistAbs || t >= 1.0) {
+                // Snap to stop shell
+                // But in spherical, "stop shell" is just r_target +/- stopDist? 
+                // No, target might be planetary (small R relative to Sun).
+                // Use vector from target center.
+
+                // If t >= 1, we are at target. Back up to stop shell.
+                // Vector target -> origin.
+                // Actually easier: just use the previous vector logic to snap.
+                const toTarget = { x: dx, y: dy, z: dz };
+                const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                if (d > 0) {
+                    this.camera.position.x = this.jumpState.targetPos.x - (toTarget.x / d) * stopDistAbs;
+                    this.camera.position.y = this.jumpState.targetPos.y - (toTarget.y / d) * stopDistAbs;
+                    this.camera.position.z = this.jumpState.targetPos.z - (toTarget.z / d) * stopDistAbs;
+                }
                 this.completeJump();
             }
         }
@@ -526,3 +705,6 @@ export class FlightControls {
         this.throttleTarget = 0.0;
     }
 }
+
+
+

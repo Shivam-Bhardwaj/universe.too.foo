@@ -237,21 +237,40 @@ export class LocalCamera {
         this.speed = 0.0;
     }
 
-    lookAt(target: Vec3d) {
+    getYaw(): number {
+        return this.yawRad;
+    }
+
+    getPitch(): number {
+        return this.pitchRad;
+    }
+
+    setYawPitch(yawRad: number, pitchRad: number) {
+        const MAX_PITCH = Math.PI / 2 - 0.001;
+        this.yawRad = yawRad;
+        this.pitchRad = clamp(pitchRad, -MAX_PITCH, MAX_PITCH);
+        this.rebuildOrientationFromYawPitch();
+    }
+
+    computeLookAtAngles(target: Vec3d): { yaw: number; pitch: number } {
         const dir = vec3Norm({
             x: target.x - this.position.x,
             y: target.y - this.position.y,
             z: target.z - this.position.z,
         });
 
-        // Compute yaw/pitch to look at target (no roll)
         // pitch = dir.y.asin()
-        // yaw = dir.x.atan2(-dir.z)
-        this.pitchRad = Math.asin(dir.y);
-        this.yawRad = Math.atan2(dir.x, -dir.z);
+        // yaw = atan2(-dir.x, -dir.z)
+        // (Note: dir.x is negated to match our Left-is-Positive-Yaw convention)
+        return {
+            pitch: Math.asin(dir.y),
+            yaw: Math.atan2(-dir.x, -dir.z),
+        };
+    }
 
-        // Rebuild orientation from yaw/pitch
-        this.rebuildOrientationFromYawPitch();
+    lookAt(target: Vec3d) {
+        const angles = this.computeLookAtAngles(target);
+        this.setYawPitch(angles.yaw, angles.pitch);
     }
 
     viewMatrix(): Float32Array {

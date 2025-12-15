@@ -1,17 +1,19 @@
 use std::sync::Arc;
 use std::time::Instant;
+use std::{fs, mem};
 
-use anyhow::{Context, Result};
-use glam::{Mat4, Vec3};
+use anyhow::{ensure, Context, Result};
+use glam::Vec3;
 use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
-    event::WindowEvent,
+    event::{DeviceEvent, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     window::{Window, WindowId},
 };
 
+mod camera;
 mod geometry;
 
 mod assets {
@@ -20,7 +22,29 @@ mod assets {
 }
 
 use crate::assets::loader::AssetLoader;
-use crate::assets::structs::PackedResidual;
+use crate::assets::structs::{KeplerParams, PackedResidual};
+use camera::{Camera, CameraController};
+
+// Matches `MAX_ASTEROIDS` in `compile_belt.py` (the loader also reads dynamically).
+const MAX_ASTEROIDS: u32 = 100_000;
+
+fn kepler_params_from_le_bytes(bytes: &[u8]) -> KeplerParams {
+    // Must match `KeplerParams` layout: 7x f32 + 1x u32 (32 bytes), little-endian.
+    debug_assert_eq!(bytes.len(), mem::size_of::<KeplerParams>());
+    let f = |off: usize| f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
+    let u = |off: usize| u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
+
+    KeplerParams {
+        semi_major_axis: f(0),
+        eccentricity: f(4),
+        inclination: f(8),
+        arg_periapsis: f(12),
+        long_asc_node: f(16),
+        mean_anomaly_0: f(20),
+        residual_scale: f(24),
+        count: u(28),
+    }
+}
 
 #[repr(C, align(16))]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -73,19 +97,49 @@ fn create_depth_texture(
     (texture, view)
 }
 
-fn build_view_proj(size: PhysicalSize<u32>) -> Mat4 {
-    let w = size.width.max(1) as f32;
-    let h = size.height.max(1) as f32;
-    let aspect = w / h;
+fn solve_kepler(m: f32, e: f32) -> f32 {
+    let mut e_anom = m;
+    for _ in 0..5 {
+        e_anom = e_anom - (e_anom - e * e_anom.sin() - m) / (1.0 - e * e_anom.cos());
+    }
+    e_anom
+}
 
-    let eye = Vec3::new(0.0, 0.0, 3.0);
-    let target = Vec3::ZERO;
-    let up = Vec3::Y;
+fn orbit_pos_kepler(params: &KeplerParams, t_days: f32) -> Vec3 {
+    // Mirrors the shader's get_orbit_pos_with_residuals(t), but without residuals.
+    // Units: AU-ish (whatever your assets encode), time in days.
+    let n = 0.017202 / params.semi_major_axis.powf(1.5);
+    let m = params.mean_anomaly_0 + n * t_days;
+    let e_anom = solve_kepler(m, params.eccentricity);
 
-    let view = Mat4::look_at_rh(eye, target, up);
-    let proj = Mat4::perspective_rh(45.0_f32.to_radians(), aspect, 0.1, 1000.0);
+    let a = params.semi_major_axis;
+    let e = params.eccentricity;
+    let x_orb = a * (e_anom.cos() - e);
+    let y_orb = a * (1.0 - e * e).sqrt() * e_anom.sin();
 
-    proj * view
+    let w = params.arg_periapsis;
+    let i = params.inclination;
+    let o = params.long_asc_node;
+
+    let (sw, cw) = w.sin_cos();
+    let (si, ci) = i.sin_cos();
+    let (so, co) = o.sin_cos();
+
+    // Rotate by Argument of Periapsis (w) around Z
+    let x1 = x_orb * cw - y_orb * sw;
+    let y1 = x_orb * sw + y_orb * cw;
+
+    // Rotate by Inclination (i) around X
+    let x2 = x1;
+    let y2 = y1 * ci;
+    let z2 = y1 * si;
+
+    // Rotate by Longitude of Ascending Node (O) around Z
+    let x_final = x2 * co - y2 * so;
+    let y_final = x2 * so + y2 * co;
+    let z_final = z2;
+
+    Vec3::new(x_final, y_final, z_final)
 }
 
 struct State {
@@ -106,8 +160,12 @@ struct State {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     index_count: u32,
+    num_bodies: u32,
 
     start: Instant,
+
+    camera: Camera,
+    camera_controller: CameraController,
 }
 
 impl State {
@@ -175,16 +233,41 @@ impl State {
         let (depth_texture, depth_view) = create_depth_texture(&device, config.width, config.height);
 
         // 2) Asset loading
-        let (orbit_params, residuals) = AssetLoader::load_orbit_data("assets/earth")
-            .context("Failed to load orbit data (assets/earth_*.{json,bin})")?;
+        let (_eros_orbit_params, residuals) = AssetLoader::load_orbit_data("assets/eros")
+            .context("Failed to load orbit data (assets/eros_*.{json,bin})")?;
         let neural_weights = AssetLoader::load_neural_brain("assets/neural_decoder.bin")
             .context("Failed to load neural weights (assets/neural_decoder.bin)")?;
 
         // 3) GPU buffers
+        // --- 1. LOAD REAL BELT ---
+        let mut orbit_data = fs::read("assets/real_belt.bin")
+            .context("Failed to read assets/real_belt.bin (run `python compile_belt.py` first)")?;
+        let bytes_per_orbit = mem::size_of::<KeplerParams>();
+        ensure!(
+            orbit_data.len() % bytes_per_orbit == 0,
+            "assets/real_belt.bin length {} is not a multiple of {} bytes",
+            orbit_data.len(),
+            bytes_per_orbit
+        );
+
+        let mut num_bodies = (orbit_data.len() / bytes_per_orbit) as u32;
+        ensure!(
+            num_bodies > 0,
+            "assets/real_belt.bin contains 0 asteroids (file is empty)"
+        );
+
+        // Safety clamp (keeps runtime memory usage predictable).
+        if num_bodies > MAX_ASTEROIDS {
+            num_bodies = MAX_ASTEROIDS;
+            orbit_data.truncate(num_bodies as usize * bytes_per_orbit);
+        }
+
+        println!("Loaded {} Real Asteroids", num_bodies);
+
         let orbit_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Orbit Uniform Buffer"),
-            contents: bytemuck::bytes_of(&orbit_params),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            label: Some("Orbit Params Storage Buffer"),
+            contents: &orbit_data,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
         let residuals_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -199,8 +282,28 @@ impl State {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
+        // Aim the starting camera at the asteroid's actual orbit position at t=0,
+        // otherwise it's easy to start out looking at empty space (black screen).
+        let first_orbit =
+            kepler_params_from_le_bytes(&orbit_data[0..mem::size_of::<KeplerParams>()]);
+        let world_center_t0 = orbit_pos_kepler(&first_orbit, 0.0);
+
+        let mut camera = Camera {
+            eye: world_center_t0 + Vec3::new(0.0, 0.05, 0.25),
+            target: world_center_t0,
+            up: Vec3::Y,
+            aspect: config.width as f32 / config.height as f32,
+            fovy: 45.0f32.to_radians(),
+            znear: 0.001, // Allow getting VERY close
+            zfar: 1000.0,
+        };
+
+        let mut camera_controller = CameraController::new(0.05, 0.002); // Slower speed for precision
+        camera_controller.look_at(camera.eye, camera.target);
+        camera_controller.update_camera(&mut camera);
+
         let global = GlobalUniforms {
-            view_proj: build_view_proj(size).to_cols_array_2d(),
+            view_proj: camera.build_view_projection_matrix().to_cols_array_2d(),
             time: 0.0,
             _pad_time: [0.0; 3],
             _pad0: [0.0; 4],
@@ -247,7 +350,7 @@ impl State {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -383,7 +486,10 @@ impl State {
             vertex_buffer,
             index_buffer,
             index_count,
+            num_bodies,
             start: Instant::now(),
+            camera,
+            camera_controller,
         })
     }
 
@@ -397,17 +503,22 @@ impl State {
         self.config.height = new_size.height;
         self.surface.configure(&self.device, &self.config);
 
+        self.camera.aspect = self.config.width as f32 / self.config.height as f32;
+
         let (depth_texture, depth_view) = create_depth_texture(&self.device, self.config.width, self.config.height);
         self.depth_texture = depth_texture;
         self.depth_view = depth_view;
     }
 
     fn update(&mut self) {
+        self.camera_controller.update_camera(&mut self.camera);
+
         let elapsed_s = self.start.elapsed().as_secs_f32();
         let time_days = elapsed_s / 86400.0;
 
+        let view_proj = self.camera.build_view_projection_matrix();
         let globals = GlobalUniforms {
-            view_proj: build_view_proj(self.size).to_cols_array_2d(),
+            view_proj: view_proj.to_cols_array_2d(),
             time: time_days,
             _pad_time: [0.0; 3],
             _pad0: [0.0; 4],
@@ -476,8 +587,8 @@ impl State {
             rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
-            // Draw 1,000 instanced asteroids
-            rpass.draw_indexed(0..self.index_count, 0, 0..1000);
+            // Draw the real belt (instance count determined by assets/real_belt.bin).
+            rpass.draw_indexed(0..self.index_count, 0, 0..self.num_bodies);
         }
 
         self.queue.submit(Some(encoder.finish()));
@@ -518,6 +629,13 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        // PASS INPUT TO CAMERA FIRST
+        if let Some(state) = &mut self.state {
+            if state.camera_controller.process_events(&event) {
+                return;
+            }
+        }
+
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
 
@@ -539,6 +657,19 @@ impl ApplicationHandler for App {
             }
 
             _ => {}
+        }
+    }
+
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: winit::event::DeviceId,
+        event: DeviceEvent,
+    ) {
+        if let Some(state) = &mut self.state {
+            if let DeviceEvent::MouseMotion { delta } = event {
+                state.camera_controller.process_mouse(delta.0, delta.1);
+            }
         }
     }
 }

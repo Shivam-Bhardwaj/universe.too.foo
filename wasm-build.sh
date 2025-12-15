@@ -15,3 +15,6 @@ cd crates/universe-engine
 wasm-pack build --target web --out-dir ../../client/wasm
 
 echo "WASM build complete! Output: client/wasm/"
+
+
+
