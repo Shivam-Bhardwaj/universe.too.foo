@@ -39,6 +39,7 @@
             display: block;
             cursor: pointer;
             background: #000;
+            touch-action: none; /* allow drag-to-look on mobile */
         }
 
         #overlay {
@@ -65,6 +66,16 @@
             opacity: 0.7;
         }
 
+        /* Touch devices: keep a subtle crosshair visible for targeting */
+        #crosshair.always-visible {
+            opacity: 0.35;
+        }
+
+        /* Highlight when a target is under the crosshair */
+        #crosshair.target {
+            opacity: 0.95;
+        }
+
         #crosshair::before,
         #crosshair::after {
             content: '';
@@ -85,6 +96,12 @@
             height: 2px;
             top: 50%;
             transform: translateY(-50%);
+        }
+
+        #crosshair.target::before,
+        #crosshair.target::after {
+            background: #fff;
+            box-shadow: 0 0 14px rgba(255, 255, 255, 0.45);
         }
 
         #hud {
@@ -261,6 +278,281 @@
             opacity: 0.4;
             text-shadow: 0 0 10px rgba(0, 170, 255, 0.5);
         }
+
+        /* ------------------------------------------------------------
+           Navigation aids (compass + labels)
+           ------------------------------------------------------------ */
+        #compass {
+            position: absolute;
+            top: 64px;
+            right: 20px;
+            width: 120px;
+            height: 120px;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(0, 170, 255, 0.22);
+            box-shadow: 0 0 18px rgba(0, 170, 255, 0.12);
+            opacity: 0.85;
+        }
+
+        #labels {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+        }
+
+        .world-label {
+            position: absolute;
+            transform: translate(-50%, -120%);
+            padding: 2px 8px;
+            border-radius: 8px;
+            border: 1px solid rgba(0, 170, 255, 0.28);
+            background: rgba(0, 0, 0, 0.45);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 650;
+            letter-spacing: 0.2px;
+            text-shadow: 0 0 12px rgba(0, 170, 255, 0.35);
+            white-space: nowrap;
+        }
+
+        .world-label.hidden {
+            display: none;
+        }
+
+        .world-label.active {
+            border-color: rgba(255, 255, 255, 0.6);
+            box-shadow: 0 0 16px rgba(255, 255, 255, 0.18);
+        }
+
+        .world-label .dist {
+            margin-left: 8px;
+            color: #0af;
+            opacity: 0.9;
+            font-weight: 700;
+        }
+
+        #orbit-hint {
+            position: absolute;
+            left: 50%;
+            bottom: 90px;
+            transform: translateX(-50%);
+            padding: 8px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(0, 170, 255, 0.25);
+            background: rgba(0, 0, 0, 0.45);
+            color: rgba(207, 239, 255, 0.95);
+            font-size: 12px;
+            text-shadow: 0 0 12px rgba(0, 170, 255, 0.25);
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #orbit-hint.hidden {
+            display: none;
+        }
+
+        /* ------------------------------------------------------------
+           Sun direction indicator
+           ------------------------------------------------------------ */
+        #sun-indicator {
+            position: absolute;
+            z-index: 20;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        #sun-indicator.hidden {
+            display: none;
+        }
+
+        #sun-arrow {
+            font-size: 28px;
+            text-shadow: 0 0 20px rgba(255, 200, 50, 0.8), 0 0 40px rgba(255, 150, 0, 0.5);
+            transition: transform 0.1s ease-out;
+        }
+
+        #sun-indicator.on-screen #sun-arrow {
+            font-size: 20px;
+            opacity: 0.6;
+        }
+
+        #sun-dist-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: rgba(255, 220, 100, 0.95);
+            text-shadow: 0 0 10px rgba(255, 150, 0, 0.5);
+            background: rgba(0, 0, 0, 0.5);
+            padding: 2px 8px;
+            border-radius: 6px;
+        }
+
+        /* ------------------------------------------------------------
+           Jump HUD (visible during warp)
+           ------------------------------------------------------------ */
+        #jump-hud {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -120px);
+            text-align: center;
+            pointer-events: none;
+            z-index: 25;
+        }
+
+        #jump-hud.hidden {
+            display: none;
+        }
+
+        #jump-status {
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            color: #0af;
+            text-shadow: 0 0 20px rgba(0, 170, 255, 0.6);
+            margin-bottom: 6px;
+        }
+
+        #jump-target {
+            color: #fff;
+        }
+
+        #jump-distance {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.8);
+            text-shadow: 0 0 10px rgba(0, 170, 255, 0.4);
+        }
+
+        /* ------------------------------------------------------------
+           Warp streak overlay
+           ------------------------------------------------------------ */
+        #warp-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+            opacity: 0.7;
+        }
+
+        #warp-canvas.hidden {
+            display: none;
+        }
+
+        /* ------------------------------------------------------------
+           Minimap orb (tap/click to expand)
+           ------------------------------------------------------------ */
+        #nav-orb {
+            position: absolute;
+            right: 20px;
+            bottom: 60px;
+            width: 120px;
+            height: 120px;
+            border-radius: 999px;
+            overflow: hidden;
+            border: 1px solid rgba(0, 170, 255, 0.22);
+            background: rgba(0, 0, 0, 0.35);
+            box-shadow: 0 0 18px rgba(0, 170, 255, 0.12);
+            cursor: pointer;
+            pointer-events: auto;
+            user-select: none;
+            -webkit-user-select: none;
+            z-index: 50;
+        }
+
+        #nav-orb::after {
+            content: 'MAP';
+            position: absolute;
+            left: 10px;
+            bottom: 8px;
+            font-size: 10px;
+            letter-spacing: 0.6px;
+            font-weight: 800;
+            color: rgba(207, 239, 255, 0.85);
+            text-shadow: 0 0 10px rgba(0, 170, 255, 0.25);
+            pointer-events: none;
+        }
+
+        #nav-orb.expanded {
+            right: 0;
+            bottom: 0;
+            width: 100vw;
+            height: 100vh;
+            border-radius: 0;
+            background: rgba(0, 0, 0, 0.85);
+            border: none;
+            box-shadow: none;
+        }
+
+        #nav-orb-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* On touch-first layouts, lift the orb above the minimal UI */
+        @media (pointer: coarse), (max-width: 900px) {
+            #nav-orb {
+                bottom: 80px;
+            }
+        }
+
+        /* ------------------------------------------------------------
+           Minimal mobile UI (touch-first devices)
+           ------------------------------------------------------------ */
+        #mobile-min-ui {
+            position: absolute;
+            right: 16px;
+            bottom: 16px;
+            display: none; /* enabled via media query */
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: auto;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .mbtn {
+            min-width: 64px;
+            height: 48px;
+            padding: 0 16px;
+            border-radius: 10px;
+            border: 1px solid rgba(0, 170, 255, 0.35);
+            background: rgba(0, 10, 20, 0.75);
+            color: #fff;
+            font-weight: 700;
+            font-size: 13px;
+            letter-spacing: 0.3px;
+            box-shadow: 0 0 12px rgba(0, 170, 255, 0.15);
+            touch-action: none;
+            cursor: pointer;
+        }
+
+        .mbtn:active {
+            transform: translateY(1px);
+            background: rgba(0, 170, 255, 0.25);
+        }
+
+        /* Show minimal UI on touch-first devices, hide big controls */
+        @media (pointer: coarse), (max-width: 900px) {
+            #mobile-min-ui {
+                display: flex;
+            }
+            #touch-controls {
+                display: none !important;
+            }
+            #controls-help {
+                display: none;
+            }
+        }
     </style>
 </head>
 <body>
@@ -277,29 +569,113 @@
                 <div id="hud-info">
                     <div><b>Rate:</b> <span id="time-rate">--</span></div>
                     <div><b>Position:</b> <span id="position">--</span></div>
+                    <div><b>Dist Sun:</b> <span id="dist-sun">--</span></div>
+                    <div><b>Speed:</b> <span id="speed">--</span></div>
+                    <div><b>Yaw/Pitch:</b> <span id="angles">--</span></div>
+                    <div><b>Mode:</b> <span id="control-mode">--</span></div>
+                    <div><b>Target:</b> <span id="target">--</span></div>
+                    <div><b>LastKey:</b> <span id="last-key">--</span></div>
                     <div><b>Latency:</b> <span id="latency">--</span></div>
                     <div><b>FPS:</b> <span id="fps">--</span></div>
                     <div><b>Users:</b> <span id="users">--</span></div>
                     <div><b>Jumps:</b> <span id="jumps">--</span></div>
+                    <div><b>Data:</b> <span id="dataset">--</span></div>
                 </div>
             </div>
 
+            <canvas id="compass"></canvas>
+            <div id="labels"></div>
+            <div id="orbit-hint" class="hidden">ORBIT: drag to rotate · scroll/pinch to zoom · Esc/Exit to leave</div>
+
+            <!-- Sun direction indicator (edge-clamped arrow when Sun is off-screen) -->
+            <div id="sun-indicator" class="hidden">
+                <div id="sun-arrow">☀</div>
+                <div id="sun-dist-label">--</div>
+            </div>
+
+            <!-- Jump HUD (visible during warp) -->
+            <div id="jump-hud" class="hidden">
+                <div id="jump-status">JUMPING → <span id="jump-target">--</span></div>
+                <div id="jump-distance">-- remaining</div>
+            </div>
+
+            <!-- Warp streak overlay (visible during jump) -->
+            <canvas id="warp-canvas" class="hidden"></canvas>
+
             <div id="controls-help">
-                <div><b>WASD</b> Move camera</div>
-                <div><b>Mouse</b> Look around</div>
-                <div><b>Space / Shift</b> Up / Down</div>
-                <div><b>Q / E</b> Slow / Fast movement</div>
-                <div><b>P</b> Pause/Resume time</div>
-                <div><b>, / .</b> Slower / Faster time</div>
-                <div><b>1</b> Jump to Earth</div>
-                <div><b>2</b> Jump to Mars</div>
-                <div><b>0</b> Solar system overview</div>
-                <div><b>Esc</b> Release mouse</div>
+                <div><b>Mouse</b> Drag to steer camera</div>
+                <div><b>Scroll</b> Throttle forward/back</div>
+                <div><b>Click</b> Jump to target · Double-click teleport instantly</div>
+                <div><b>WASD</b> Move (keyboard fallback)</div>
+                <div><b>Space/Shift</b> Up/Down</div>
+                <div><b>Q/E</b> Speed down/up</div>
+                <div><b>R</b> Reset / Cancel jump</div>
+                <div><b>Esc</b> Cancel jump · Exit orbit</div>
+                <div><b>0-6</b> Quick jumps to planets</div>
             </div>
 
             <div id="status" class="connecting">●  CONNECTING</div>
 
             <div id="logo">UNIVERSE</div>
+        </div>
+
+        <!-- Mobile / touch controls (outside #overlay so pointer-events work on Safari) -->
+        <div id="touch-controls">
+            <div class="tc-panel" aria-label="Move controls">
+                <div class="tc-row">
+                    <button class="tc-btn" data-key="KeyW" aria-label="Move forward">▲</button>
+                </div>
+                <div class="tc-row">
+                    <button class="tc-btn" data-key="KeyA" aria-label="Move left">◀</button>
+                    <button class="tc-btn" data-key="KeyS" aria-label="Move backward">▼</button>
+                    <button class="tc-btn" data-key="KeyD" aria-label="Move right">▶</button>
+                </div>
+                <div class="tc-row">
+                    <button class="tc-btn tc-wide" data-key="Space" aria-label="Move up">UP</button>
+                    <button class="tc-btn tc-wide" data-key="ShiftLeft" aria-label="Move down">DN</button>
+                </div>
+                <div class="tc-row">
+                    <button class="tc-btn tc-wide" data-key="ArrowUp" aria-label="Pitch up">P+</button>
+                    <button class="tc-btn tc-wide" data-key="ArrowDown" aria-label="Pitch down">P-</button>
+                </div>
+                <div class="tc-row">
+                    <button class="tc-btn tc-wide" data-key="KeyQ" aria-label="Roll left">RL</button>
+                    <button class="tc-btn tc-wide" data-key="KeyE" aria-label="Roll right">RR</button>
+                </div>
+                <div class="tc-label">Hold to move · Drag screen to look</div>
+            </div>
+
+            <div class="tc-panel" aria-label="Quick actions">
+                <div class="tc-row">
+                    <button class="tc-btn" data-action="speedDown" aria-label="Slower">-</button>
+                    <button class="tc-btn" data-action="speedUp" aria-label="Faster">+</button>
+                    <button class="tc-btn" data-action="resetGain" aria-label="Reset">R</button>
+                </div>
+                <div class="tc-row">
+                    <button class="tc-btn tc-wide" data-action="overview" aria-label="Overview">0</button>
+                    <button class="tc-btn tc-wide" data-action="earth" aria-label="Earth">1</button>
+                </div>
+                <div class="tc-row">
+                    <button class="tc-btn tc-wide" data-action="mars" aria-label="Mars">2</button>
+                    <button class="tc-btn tc-wide" data-action="sun" aria-label="Sun">SUN</button>
+                </div>
+                <div class="tc-row">
+                    <button class="tc-btn tc-wide" data-action="toggleMode" aria-label="Toggle controls">MODE</button>
+                </div>
+                <div class="tc-label">Speed · Jumps</div>
+            </div>
+        </div>
+
+        <!-- Minimap orb (tap/click to expand) -->
+        <div id="nav-orb" aria-label="Minimap">
+            <canvas id="nav-orb-canvas"></canvas>
+        </div>
+
+        <!-- Minimal mobile UI -->
+        <div id="mobile-min-ui">
+            <button class="mbtn" data-action="home" aria-label="Home">HOME</button>
+            <button class="mbtn" data-action="reset" aria-label="Reset">RESET</button>
+            <button class="mbtn" data-action="exitOrbit" aria-label="Exit orbit" style="display: none;">EXIT</button>
         </div>
 
         <div id="loading">

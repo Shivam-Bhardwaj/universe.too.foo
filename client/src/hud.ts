@@ -8,6 +8,7 @@ export class HUD {
     private fpsEl: HTMLElement;
     private usersEl: HTMLElement;
     private jumpsEl: HTMLElement;
+    private datasetEl: HTMLElement;
 
     constructor() {
         this.timeEl = document.getElementById('hud-time')!;
@@ -17,6 +18,7 @@ export class HUD {
         this.fpsEl = document.getElementById('fps')!;
         this.usersEl = document.getElementById('users')!;
         this.jumpsEl = document.getElementById('jumps')!;
+        this.datasetEl = document.getElementById('dataset')!;
     }
 
     update(state: ServerState): void {
@@ -53,6 +55,12 @@ export class HUD {
     updateJumpStatus(remaining: number, max: number, registered: boolean): void {
         const tier = registered ? 'REG' : 'GUEST';
         this.jumpsEl.textContent = `${remaining}/${max} (${tier})`;
+    }
+
+    updateDatasetProgress(loadedCells: number, totalCells: number, loadedSplats: number, totalSplats: number): void {
+        const cellsTxt = `${loadedCells}/${totalCells} cells`;
+        const splatsTxt = `${loadedSplats.toLocaleString()}/${totalSplats.toLocaleString()} splats`;
+        this.datasetEl.textContent = `${cellsTxt} · ${splatsTxt}`;
     }
 
     updateLatency(ms: number): void {

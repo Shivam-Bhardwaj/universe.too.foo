@@ -206,8 +206,20 @@ impl Renderer {
 
     /// Load visible splats to GPU
     pub fn prepare_frame(&mut self) -> Result<()> {
-        // Get visible cells
-        let visible = self.streaming.get_visible_cells();
+        // Phase 1.3: Get visible cells using frustum culling
+        let camera_forward = self.camera.forward();
+        let camera_up = self.camera.up();
+        let aspect = self.config.width as f32 / self.config.height as f32;
+        let max_distance = self.camera.far as f64 * 0.9; // Use 90% of far plane
+        
+        let visible = self.streaming.get_visible_cells_frustum(
+            self.camera.position,
+            camera_forward,
+            camera_up,
+            self.camera.fov_y,
+            aspect,
+            max_distance,
+        );
 
         // Collect splats from visible cells
         let mut all_splats: Vec<GpuSplat> = Vec::new();

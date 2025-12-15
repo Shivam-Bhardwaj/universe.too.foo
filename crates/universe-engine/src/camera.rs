@@ -1,4 +1,5 @@
-//! Camera with astronomical scale support
+//! Camera math with floating origin and logarithmic depth
+//! Phase 1.2: True camera math implementation
 
 use glam::{DVec3, DQuat, Vec3, Mat4};
 use std::f64::consts::PI;
@@ -58,7 +59,7 @@ impl Camera {
 
     /// Update orientation from mouse delta
     pub fn rotate(&mut self, dx: f32, dy: f32) {
-        self.yaw += dx as f64 * self.sensitivity as f64;  // Flipped: drag-style controls
+        self.yaw += dx as f64 * self.sensitivity as f64;
         self.pitch += dy as f64 * self.sensitivity as f64;
 
         // Clamp pitch to avoid gimbal lock
@@ -146,7 +147,7 @@ fn reverse_z_infinite_projection(fov_y: f32, aspect: f32, near: f32) -> Mat4 {
     ])
 }
 
-/// Camera uniform buffer data for basic rendering
+/// Camera uniform buffer data for GPU
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CameraUniform {
@@ -168,9 +169,6 @@ impl CameraUniform {
         let view_proj = proj * view;
 
         // Phase 1.2: Compute log depth constant for astronomical scales
-        // This controls the distribution of depth precision across the range.
-        // For astronomical scales (near=1m, far=1e20m), we want good precision
-        // across many orders of magnitude. Using 1.0 / near gives good distribution.
         let log_depth_c = 1.0 / camera.near.max(1.0);
 
         Self {
@@ -183,59 +181,6 @@ impl CameraUniform {
             far: camera.far,
             fov_y: camera.fov_y,
             log_depth_c,
-        }
-    }
-}
-
-/// Extended camera uniform for tile-based rasterization
-/// Includes focal lengths and screen dimensions needed for Gaussian projection
-#[repr(C)]
-#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct RasterCameraUniform {
-    pub view: [[f32; 4]; 4],
-    pub proj: [[f32; 4]; 4],
-    pub view_proj: [[f32; 4]; 4],
-    pub position: [f32; 3],
-    pub _pad0: f32,
-    pub near: f32,
-    pub far: f32,
-    pub fov_y: f32,
-    pub log_depth_c: f32,
-    pub focal_x: f32,
-    pub focal_y: f32,
-    pub width: f32,
-    pub height: f32,
-}
-
-impl RasterCameraUniform {
-    pub fn from_camera(camera: &Camera, width: u32, height: u32) -> Self {
-        let aspect = width as f32 / height as f32;
-        let view = camera.view_matrix();
-        let proj = camera.projection_matrix(aspect);
-        let view_proj = proj * view;
-
-        // Compute focal lengths in pixels
-        // focal = (dimension / 2) / tan(fov / 2)
-        let focal_y = (height as f32 / 2.0) / (camera.fov_y / 2.0).tan();
-        let focal_x = focal_y; // Assuming square pixels
-
-        // Phase 1.2: Compute log depth constant for astronomical scales
-        let log_depth_c = 1.0 / camera.near.max(1.0);
-
-        Self {
-            view: view.to_cols_array_2d(),
-            proj: proj.to_cols_array_2d(),
-            view_proj: view_proj.to_cols_array_2d(),
-            position: [0.0, 0.0, 0.0],
-            _pad0: 0.0,
-            near: camera.near,
-            far: camera.far,
-            fov_y: camera.fov_y,
-            log_depth_c,
-            focal_x,
-            focal_y,
-            width: width as f32,
-            height: height as f32,
         }
     }
 }

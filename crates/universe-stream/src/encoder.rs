@@ -142,6 +142,10 @@ impl FfmpegH264Encoder {
             "-i", "pipe:0",
             "-an",
             "-c:v", "h264_nvenc",
+            // Improve decoder compatibility (WebCodecs / mobile):
+            // keep to baseline profile and clamp level so `avc1.*` is widely supported.
+            "-profile:v", "baseline",
+            "-level:v", "4.1",
             "-preset", "p1",
             "-tune", "ll",
             "-bf", "0",

@@ -144,17 +144,25 @@ impl StreamingServer {
     /// Create router for web server
     pub fn create_router(self: Arc<Self>) -> Router {
         Router::new()
-            // Legacy MJPEG viewer (debug). The main client is served from `client/dist`.
+            // DEBUG/DEV ONLY: Pixel streaming endpoints (not used in production).
+            // Production uses client-side dataset rendering. These endpoints are retained
+            // for debugging server-side rendering or testing video codec compatibility.
+            // Phase 0.1: Stream mode is debug-only; client defaults to dataset mode.
             .route("/mjpeg", get(index_handler))
             .route("/stream", get(stream_handler))
             .route("/control", get(control_handler))
+            // Serve the on-disk universe dataset (index.json + cells/*.bin) over HTTP.
+            // This enables client-side rendering modes that stream dataset chunks instead of video.
+            .nest_service("/universe", ServeDir::new("universe"))
             .fallback_service(ServeDir::new("client/dist").append_index_html_on_directories(true))
             .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
             .with_state(self)
     }
 }
 
-/// Index page with viewer
+/// DEBUG/DEV ONLY: Legacy MJPEG viewer endpoint.
+/// This is not used in production; the main client uses dataset mode.
+/// Phase 0.1: Pixel streaming is debug-only.
 async fn index_handler() -> Html<&'static str> {
     Html(r#"
 <!DOCTYPE html>

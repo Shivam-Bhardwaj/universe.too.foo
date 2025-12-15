@@ -40,10 +40,13 @@ cargo run -p universe-cli -- serve --universe universe --port 7878 --width 1280 
 
 Endpoints:
 - **UI**: `http://localhost:7878/` (serves `client/dist` if present)
+- **Dataset**: `http://localhost:7878/universe/` (serves preprocessed dataset files)
+
+**Debug endpoints (dev only):**
 - **Legacy MJPEG viewer**: `http://localhost:7878/mjpeg`
-- **Video stream**:
-  - H.264 (preferred): `ws://localhost:7878/stream?codec=h264`
-  - MJPEG fallback: `ws://localhost:7878/stream`
+- **Video stream** (debug only, use `?mode=stream&debug=1` in client):
+  - H.264: `ws://localhost:7878/stream?codec=h264`
+  - MJPEG: `ws://localhost:7878/stream`
 - **Control**: `ws://localhost:7878/control` (use `?registered=1` to enable 5× jump budget)
 
 ### 3) Run the browser client (dev)
@@ -55,6 +58,17 @@ npm run dev
 ```
 
 Open `http://localhost:3000` (Vite proxies `/stream` and `/control` to the server).
+
+## Runtime Requirements
+
+**Production (recommended):**
+- **WebGPU**: Chrome 113+, Edge 113+, Safari 18+, or Firefox 110+ (experimental flag)
+- **WebGL2**: Fallback for older browsers (reduced performance, not recommended)
+
+**Debug mode:**
+- Pixel streaming (`?mode=stream&debug=1`) requires WebCodecs API support (Chrome/Edge)
+
+The client automatically detects your browser and shows appropriate warnings if requirements aren't met.
 
 ## Deployment (universe.too.foo)
 
@@ -82,5 +96,5 @@ Cloudflare tunnel routes are in `cloudflare/config.yml`.
 ## Architecture (high level)
 
 - **Dataset** (`universe/`): HLG cell files + manifest (`index.json`) produced by `universe-cli build`
-- **Server**: WGPU render → capture → **NVENC H.264** via ffmpeg (v1) → WebSocket broadcast
-- **Client**: WebCodecs decode to canvas (fallback to MJPEG)
+- **Client** (production): Fetches dataset → LZ4 decompress → WebGPU/WebGL2 render (no server rendering)
+- **Server** (debug only): WGPU render → capture → **NVENC H.264** via ffmpeg → WebSocket broadcast (for debugging)

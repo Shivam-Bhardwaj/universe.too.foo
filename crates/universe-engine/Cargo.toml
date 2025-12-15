@@ -1,0 +1,38 @@
+[package]
+name = "universe-engine"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+universe-core = { path = "../universe-core" }
+universe-data = { path = "../universe-data" }
+
+# Math / serialization
+
+# Note: we keep the core engine usable from native builds too.
+glam = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bytemuck = { workspace = true }
+anyhow = { workspace = true }
+
+# WASM-only dependencies
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+getrandom = { version = "0.2", features = ["js"] }
+web-sys = { version = "0.3", features = [
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Window",
+    "Document",
+    "HtmlCanvasElement",
+    "console",
+] }
+console_error_panic_hook = "0.1"

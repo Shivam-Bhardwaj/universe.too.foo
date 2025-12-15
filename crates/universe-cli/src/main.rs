@@ -7,6 +7,8 @@ use tracing_subscriber;
 use std::path::PathBuf;
 use hifitime::Epoch;
 use std::str::FromStr;
+use serde::{Serialize, Deserialize};
+use std::io::Write;
 
 #[derive(Parser)]
 #[command(name = "universe")]
@@ -145,6 +147,24 @@ enum Commands {
         universe: PathBuf,
     },
 
+    /// Pack cell binaries into a single file for fast loading
+    ///
+    /// This dramatically speeds up browser dataset mode by avoiding thousands of
+    /// tiny HTTP requests (one per cell).
+    Pack {
+        /// Universe directory (contains index.json + cells/*.bin)
+        #[arg(short, long, default_value = "universe")]
+        universe: PathBuf,
+
+        /// Output pack file name (written into the universe directory)
+        #[arg(long, default_value = "cells.pack.bin")]
+        pack_file: String,
+
+        /// Output pack index JSON (written into the universe directory)
+        #[arg(long, default_value = "cells.pack.json")]
+        pack_index: String,
+    },
+
     /// Run streaming server (browser-based remote viewing)
     Serve {
         /// HTTP server port
@@ -189,6 +209,61 @@ enum Commands {
         #[arg(long, default_value = "500")]
         iterations: usize,
     },
+
+    /// Generate landmarks.json from dataset (brightest/highest quality stars)
+    GenerateLandmarks {
+        /// Universe directory (contains index.json)
+        #[arg(short, long, default_value = "universe")]
+        universe: PathBuf,
+        /// Input star catalog (CSV)
+        #[arg(short, long)]
+        stars: Option<PathBuf>,
+        /// Number of landmarks to generate
+        #[arg(short, long, default_value = "50")]
+        count: usize,
+        /// Output file
+        #[arg(short, long, default_value = "universe/landmarks.json")]
+        output: PathBuf,
+        /// Selection method: "brightness" or "quality"
+        #[arg(long, default_value = "brightness")]
+        method: String,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct CellPackEntry {
+    file_name: String,
+    offset: u64,
+    size: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct CellPackIndex {
+    version: u32,
+    pack_file: String,
+    total_size_bytes: u64,
+    cells: Vec<CellPackEntry>,
+}
+
+/// Landmark for client navigation (matches TypeScript schema)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct LandmarkPos {
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Landmark {
+    id: String,
+    name: String,
+    kind: String,
+    pos_meters: LandmarkPos,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    radius_hint: Option<f64>,
+    source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
 }
 
 #[tokio::main]
@@ -448,6 +523,60 @@ async fn main() -> Result<()> {
             universe_render::run(&universe)?;
         }
 
+        Commands::Pack { universe, pack_file, pack_index } => {
+            let manifest_path = universe.join("index.json");
+            let manifest = universe_data::CellManifest::load(&manifest_path)?;
+
+            // Prefer `universe/cells/`, fall back to legacy flat layout
+            let preferred_cells_dir = universe.join("cells");
+            let cells_dir = if preferred_cells_dir.is_dir() {
+                preferred_cells_dir
+            } else {
+                universe.clone()
+            };
+
+            let pack_path = universe.join(&pack_file);
+            let index_path = universe.join(&pack_index);
+
+            println!("Packing {} cells…", manifest.cells.len());
+            println!("  Cells dir: {}", cells_dir.display());
+            println!("  Pack file: {}", pack_path.display());
+            println!("  Index:     {}", index_path.display());
+
+            let mut out = std::io::BufWriter::new(std::fs::File::create(&pack_path)?);
+            let mut offset: u64 = 0;
+            let mut entries: Vec<CellPackEntry> = Vec::with_capacity(manifest.cells.len());
+
+            for cell in &manifest.cells {
+                let path = cells_dir.join(&cell.file_name);
+                let bytes = std::fs::read(&path)?;
+                let size = bytes.len() as u64;
+
+                use std::io::Write as _;
+                out.write_all(&bytes)?;
+
+                entries.push(CellPackEntry {
+                    file_name: cell.file_name.clone(),
+                    offset,
+                    size,
+                });
+
+                offset += size;
+            }
+
+            out.flush()?;
+
+            let index = CellPackIndex {
+                version: 1,
+                pack_file,
+                total_size_bytes: offset,
+                cells: entries,
+            };
+            std::fs::write(&index_path, serde_json::to_string_pretty(&index)?)?;
+
+            println!("Done: {:.2} MB packed", offset as f64 / 1e6);
+        }
+
         Commands::Serve { port, universe, width, height, fps } => {
             println!("Starting Universe streaming server...");
             println!("  Port: {}", port);
@@ -507,6 +636,112 @@ async fn main() -> Result<()> {
             };
 
             universe_train::train_universe::<Backend>(&input, &output, config, device)?;
+        }
+
+        Commands::GenerateLandmarks { universe, stars, count, output, method } => {
+            println!("Generating {} landmarks using {} method...", count, method);
+
+            let mut landmarks: Vec<Landmark> = Vec::new();
+
+            // If star catalog is provided, generate landmarks from it
+            if let Some(stars_path) = stars {
+                let cat = universe_data::StarCatalog::load_gaia_csv(&stars_path)?;
+
+                // Collect stars with valid parallax for sorting
+                let mut sorted: Vec<_> = cat.iter()
+                    .filter(|r| r.parallax > 0.1)
+                    .collect();
+
+                // Sort by brightness (lower magnitude = brighter) or quality
+                match method.as_str() {
+                    "quality" => {
+                        // Quality score: parallax / estimated_error (higher = better)
+                        sorted.sort_by(|a, b| {
+                            let qa = a.parallax / (a.parallax * 0.1).max(0.01);
+                            let qb = b.parallax / (b.parallax * 0.1).max(0.01);
+                            qb.partial_cmp(&qa).unwrap_or(std::cmp::Ordering::Equal)
+                        });
+                    }
+                    _ => {
+                        // Default: brightness (lower magnitude = brighter)
+                        sorted.sort_by(|a, b| {
+                            a.phot_g_mean_mag.partial_cmp(&b.phot_g_mean_mag).unwrap_or(std::cmp::Ordering::Equal)
+                        });
+                    }
+                }
+
+                // Take top N
+                for (i, record) in sorted.iter().take(count).enumerate() {
+                    if let Some(pos) = record.to_cartesian() {
+                        let distance_pc = 1000.0 / record.parallax.max(0.1);
+                        let dist_ly = distance_pc * 3.26156;
+
+                        landmarks.push(Landmark {
+                            id: format!("star-{}", record.source_id.unwrap_or(i as u64)),
+                            name: format!("Star {} (Gaia {})", i + 1, record.source_id.unwrap_or(0)),
+                            kind: "star".to_string(),
+                            pos_meters: LandmarkPos {
+                                x: pos.x,
+                                y: pos.y,
+                                z: pos.z,
+                            },
+                            radius_hint: None,
+                            source: "ml".to_string(),
+                            description: Some(format!("Mag {:.1}, {:.1} ly", record.phot_g_mean_mag, dist_ly)),
+                        });
+                    }
+                }
+            } else {
+                // No star catalog: generate simple landmarks from manifest cells
+                let manifest_path = universe.join("index.json");
+                if manifest_path.exists() {
+                    let manifest = universe_data::CellManifest::load(&manifest_path)?;
+
+                    // Sample cells at different distances
+                    let mut cells_by_shell: std::collections::HashMap<u32, Vec<_>> = std::collections::HashMap::new();
+                    for cell in &manifest.cells {
+                        cells_by_shell.entry(cell.id.l).or_default().push(cell);
+                    }
+
+                    // Pick representative cells from different shells
+                    let mut shell_keys: Vec<_> = cells_by_shell.keys().copied().collect();
+                    shell_keys.sort();
+
+                    for &shell in shell_keys.iter().take(count) {
+                        if let Some(cells) = cells_by_shell.get(&shell) {
+                            if let Some(cell) = cells.first() {
+                                // Compute centroid from cell bounds
+                                let bounds = grid.cell_to_bounds(cell.id);
+                                let r_inner = grid.shell_inner_radius(shell);
+                                let r_outer = grid.shell_outer_radius(shell);
+                                let r_mid = (r_inner + r_outer) / 2.0;
+                                let dist_ly = r_mid / 9.461e15;
+
+                                landmarks.push(Landmark {
+                                    id: format!("shell-{}", shell),
+                                    name: format!("Shell {} Region", shell),
+                                    kind: "region".to_string(),
+                                    pos_meters: LandmarkPos {
+                                        x: bounds.centroid.x,
+                                        y: bounds.centroid.y,
+                                        z: bounds.centroid.z,
+                                    },
+                                    radius_hint: Some(r_outer - r_inner),
+                                    source: "ml".to_string(),
+                                    description: Some(format!("{:.1} - {:.1} ly", r_inner / 9.461e15, dist_ly * 2.0 - r_inner / 9.461e15)),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Write output
+            std::fs::create_dir_all(output.parent().unwrap())?;
+            let json = serde_json::to_string_pretty(&landmarks)?;
+            std::fs::write(&output, json)?;
+
+            println!("Generated {} landmarks -> {}", landmarks.len(), output.display());
         }
     }
 

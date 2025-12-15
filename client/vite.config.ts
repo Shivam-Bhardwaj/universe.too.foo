@@ -12,6 +12,10 @@ export default defineConfig({
         target: 'ws://localhost:7878',
         ws: true,
       },
+      // Dataset mode: fetch index.json + cells over HTTP from the Rust server
+      '/universe': {
+        target: 'http://localhost:7878',
+      },
     },
   },
   build: {

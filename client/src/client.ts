@@ -19,6 +19,7 @@ export class UniverseClient {
     private controlWs: WebSocket | null = null;
     private pingInterval: number | null = null;
     private bufferingTimer: number | null = null;
+    private reconnectingStream = false;
 
     public onStatusChange: ((status: string) => void) | null = null;
     public onStateUpdate: ((state: ServerState) => void) | null = null;
@@ -53,6 +54,38 @@ export class UniverseClient {
 
         // Start ping loop
         this.startPingLoop();
+    }
+
+    /**
+     * If H.264/WebCodecs fails (unsupported config or repeated decode errors),
+     * fall back to the MJPEG stream while keeping the control channel alive.
+     */
+    async fallbackToMjpeg(reason?: string): Promise<void> {
+        if (!this.opts?.preferH264) return; // already on MJPEG
+        console.warn('[STREAM] Falling back to MJPEG', reason ? `(${reason})` : '');
+
+        this.opts = { ...(this.opts ?? {}), preferH264: false };
+        await this.reconnectStream(`${this.wsBaseUrl}/stream`);
+    }
+
+    private async reconnectStream(url: string): Promise<void> {
+        this.reconnectingStream = true;
+        try {
+            // Best-effort close existing stream; don't treat it as a full disconnect.
+            try {
+                this.streamWs?.close();
+            } catch {
+                // ignore
+            }
+            this.streamWs = null;
+
+            // Keep UI informed; we will flip back to CONNECTED after opening.
+            this.onStatusChange?.('CONNECTING');
+            await this.connectStream(url);
+            this.onStatusChange?.('CONNECTED');
+        } finally {
+            this.reconnectingStream = false;
+        }
     }
 
     private connectStream(url: string): Promise<void> {
@@ -104,7 +137,11 @@ export class UniverseClient {
 
             this.streamWs.onclose = () => {
                 console.log('Stream closed');
-                this.onStatusChange?.('DISCONNECTED');
+                // If we're intentionally reconnecting the stream (e.g., H.264->MJPEG fallback),
+                // don't flip the whole client into DISCONNECTED state.
+                if (!this.reconnectingStream) {
+                    this.onStatusChange?.('DISCONNECTED');
+                }
             };
         });
     }

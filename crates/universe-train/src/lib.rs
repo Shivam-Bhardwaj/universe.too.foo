@@ -1,4 +1,5 @@
 pub mod camera;
+pub mod entropy_model;
 pub mod ground_truth;
 pub mod loss;
 pub mod model;

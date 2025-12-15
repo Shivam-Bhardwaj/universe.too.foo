@@ -1503,6 +1503,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "const-random"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7902,6 +7912,8 @@ dependencies = [
  "clap",
  "csv",
  "hifitime",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -7947,6 +7959,25 @@ dependencies = [
  "tokio",
  "tracing",
  "universe-core",
+]
+
+[[package]]
+name = "universe-engine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "console_error_panic_hook",
+ "getrandom 0.2.16",
+ "glam 0.29.3",
+ "js-sys",
+ "serde",
+ "serde_json",
+ "universe-core",
+ "universe-data",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

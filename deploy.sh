@@ -8,12 +8,17 @@ echo "=== Universe Deployment ==="
 
 # Build Rust server (release mode)
 echo ""
-echo "[1/3] Building server (release mode)..."
+echo "[1/4] Building server (release mode)..."
 cargo build --release -p universe-cli
+
+# Build WASM engine package (for web viewer)
+echo ""
+echo "[2/4] Building WASM engine..."
+./wasm-build.sh
 
 # Build TypeScript client
 echo ""
-echo "[2/3] Building client..."
+echo "[3/4] Building client..."
 cd client
 
 # Install dependencies if needed
@@ -29,7 +34,7 @@ cd ..
 
 # Verify builds
 echo ""
-echo "[3/3] Verifying builds..."
+echo "[4/4] Verifying builds..."
 
 if [ ! -f "target/release/universe" ]; then
     echo "Error: Server binary not found"

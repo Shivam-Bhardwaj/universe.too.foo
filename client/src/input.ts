@@ -1,6 +1,27 @@
 import { UniverseClient } from './client';
+import type { LocalCamera } from './camera';
+import type { Vec3d } from './camera';
+import { FlightControls, type ControlMode, type JumpState } from './flight_controls';
 
 const AU = 1.496e11;
+
+// Named navigation targets for digit keys
+interface NavTarget {
+    name: string;
+    pos: Vec3d;
+    radius_m?: number;
+}
+
+const NAV_TARGETS: Record<string, NavTarget> = {
+    'Digit0': { name: 'Home', pos: { x: 0, y: 0, z: 1.5e11 } },
+    // Approximate semi-major-axis positions (match dataset-mode overlay in main.ts).
+    'Digit1': { name: 'Earth', pos: { x: AU, y: 0, z: 0 }, radius_m: 6.371e6 },
+    'Digit2': { name: 'Mars', pos: { x: 1.52 * AU, y: 0, z: 0 }, radius_m: 3.3895e6 },
+    'Digit3': { name: 'Jupiter', pos: { x: 5.2 * AU, y: 0, z: 0 }, radius_m: 6.9911e7 },
+    'Digit4': { name: 'Saturn', pos: { x: 9.5 * AU, y: 0, z: 0 }, radius_m: 5.8232e7 },
+    'Digit5': { name: 'Uranus', pos: { x: 19.2 * AU, y: 0, z: 0 }, radius_m: 2.5362e7 },
+    'Digit6': { name: 'Neptune', pos: { x: 30 * AU, y: 0, z: 0 }, radius_m: 2.4622e7 },
+};
 
 export class InputHandler {
     private keysPressed: Set<string> = new Set();
@@ -36,7 +57,7 @@ export class InputHandler {
 
         const crosshair = document.getElementById('crosshair');
         if (crosshair) {
-            crosshair.className = this.pointerLocked ? 'visible' : '';
+            crosshair.classList.toggle('visible', this.pointerLocked);
         }
     }
 
@@ -127,5 +148,185 @@ export class InputHandler {
                 this.client.lookAt(30 * AU, 0, 0);
                 break;
         }
+    }
+}
+
+/**
+ * Local input handler for client-side WebGPU rendering mode.
+ * Uses FlightControls for unified navigation (mouse-steer + scroll-throttle).
+ */
+export class LocalInputHandler {
+    private keysPressed: Set<string> = new Set();
+    private virtualKeysPressed: Set<string> = new Set();
+    private flightControls: FlightControls;
+    private lastKeyDebug: string = '';
+
+    constructor(private camera: LocalCamera) {
+        this.flightControls = new FlightControls(camera);
+        this.setupEventListeners();
+    }
+
+    private setupEventListeners(): void {
+        // Keyboard: attach to both document and window for reliability
+        document.addEventListener('keydown', (e) => this.onKeyDown(e));
+        document.addEventListener('keyup', (e) => this.onKeyUp(e));
+        window.addEventListener('keydown', (e) => this.onKeyDown(e));
+        window.addEventListener('keyup', (e) => this.onKeyUp(e));
+        // NOTE: mouse/touch/wheel events are handled in `main.ts` because they
+        // must be bound to the render canvas element.
+    }
+
+    getFlightControls(): FlightControls {
+        return this.flightControls;
+    }
+
+    getMode(): ControlMode {
+        return this.flightControls.getMode();
+    }
+
+    getLastKeyDebug(): string {
+        return this.lastKeyDebug;
+    }
+
+    setVirtualKey(code: string, down: boolean): void {
+        if (down) this.virtualKeysPressed.add(code);
+        else this.virtualKeysPressed.delete(code);
+    }
+
+    clearVirtualKeys(): void {
+        this.virtualKeysPressed.clear();
+    }
+
+    update(dt: number): void {
+        // Update flight controls (handles steer + throttle)
+        this.flightControls.update(dt);
+
+        // Keyboard fallback: WASD for movement, Space/Shift for up/down
+        const keySources: string[] = [];
+        for (const k of this.keysPressed) keySources.push(k);
+        for (const k of this.virtualKeysPressed) keySources.push(k);
+
+        let forward = 0.0;
+        let right = 0.0;
+        let up = 0.0;
+
+        for (const key of keySources) {
+            switch (key) {
+                case 'KeyW':
+                    forward += 1.0;
+                    break;
+                case 'KeyS':
+                    forward -= 1.0;
+                    break;
+                case 'KeyA':
+                    right -= 1.0;
+                    break;
+                case 'KeyD':
+                    right += 1.0;
+                    break;
+                case 'Space':
+                    up += 1.0;
+                    break;
+                case 'ShiftLeft':
+                case 'ShiftRight':
+                    up -= 1.0;
+                    break;
+            }
+        }
+
+        // Apply keyboard movement if any
+        if (forward !== 0 || right !== 0 || up !== 0) {
+            this.camera.updateGain(dt, true);
+            this.camera.translate(forward, right, up, dt);
+        }
+    }
+
+    private onKeyDown(e: KeyboardEvent): void {
+        const gameKeys = [
+            'Space',
+            'ArrowUp',
+            'ArrowDown',
+            'ArrowLeft',
+            'ArrowRight',
+            'KeyW',
+            'KeyA',
+            'KeyS',
+            'KeyD',
+            'KeyQ',
+            'KeyE',
+            'KeyR',
+            'KeyF',
+            'BracketLeft',
+            'BracketRight',
+            'KeyP',
+            'Escape',
+        ];
+        if (gameKeys.includes(e.code)) {
+            e.preventDefault();
+        }
+
+        // Debug: track last key pressed
+        this.lastKeyDebug = e.code || e.key || 'unknown';
+
+        if (e.code === 'Escape') {
+            // Cancel jump if active
+            if (this.flightControls.isJumping()) {
+                this.flightControls.cancelJump();
+                return;
+            }
+            // Exit orbit focus if active
+            if (this.flightControls.getMode() === 'orbitFocus') {
+                this.flightControls.exitOrbitFocus();
+            }
+            return;
+        }
+
+        if (this.keysPressed.has(e.code)) return;
+        this.keysPressed.add(e.code);
+
+        // Instant actions (pressed)
+        this.handleSpecialKey(e.code);
+    }
+
+    private onKeyUp(e: KeyboardEvent): void {
+        this.keysPressed.delete(e.code);
+    }
+
+    private handleSpecialKey(code: string): void {
+        switch (code) {
+            case 'KeyQ':
+                this.camera.adjustTravelTime(10);
+                break;
+            case 'KeyE':
+                this.camera.adjustTravelTime(-10);
+                break;
+            case 'KeyR':
+                // Reset movement/throttle and cancel any jump
+                this.camera.resetGain();
+                this.flightControls.resetThrottle();
+                this.flightControls.cancelJump();
+                break;
+            case 'BracketLeft':
+                this.camera.adjustTravelTime(10);
+                break;
+            case 'BracketRight':
+                this.camera.adjustTravelTime(-10);
+                break;
+            default:
+                // Handle digit keys as jump targets
+                if (code in NAV_TARGETS) {
+                    const target = NAV_TARGETS[code];
+                    this.flightControls.startJump(target.pos, target.name, target.radius_m);
+                }
+                break;
+        }
+    }
+
+    getJumpState(): JumpState {
+        return this.flightControls.getJumpState();
+    }
+
+    isJumping(): boolean {
+        return this.flightControls.isJumping();
     }
 }
