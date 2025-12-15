@@ -520,14 +520,19 @@ class PlanetariumCompiler:
         seed: int = 0,
         state_dict_path: Optional[str | Path] = None,
     ) -> Dict[str, Any]:
-        """Export raw float32 weights for a simple MLP.
+        """Export raw float32 neural weights (Chaos Brain).
 
-        Model: 35 -> 64 -> 64 -> 4 (Linear + ReLU + Linear + ReLU + Linear).
-        Layout (row-major): W0, b0, W1, b1, W2, b2 as a flat float32 array.
+        This intentionally uses high-variance weights (std=2.0) to make the
+        vertex displacement and coloring obviously visible when validating the
+        GPU inference pipeline.
+
+        Model: 35 -> 64 -> 64 -> 4
+        Layout (row-major): layer1.W, layer1.b, layer2.W, layer2.b, out.W, out.b
         """
-        # Prefer PyTorch if available (weights can be loaded from a state_dict),
-        # but fall back to deterministic NumPy weights so the Rust/WGPU pipeline
-        # can still be exercised without torch installed.
+        print("\n[Neural] Generating Chaos Brain (High Variance)...")
+
+        # Prefer PyTorch (so initialization matches the snippet). If torch isn't
+        # available, fall back to NumPy with equivalent shapes/variance.
         try:  # pragma: no cover
             import torch
             import torch.nn as nn
@@ -537,53 +542,59 @@ class PlanetariumCompiler:
 
         if torch is None or nn is None:
             rng = np.random.default_rng(int(seed))
+            std = 2.0
             # Shapes must match WGSL offsets: 35->64->64->4
-            fc1_w = rng.standard_normal((64, 35)).astype(np.float32) * 0.02
-            fc1_b = rng.standard_normal((64,)).astype(np.float32) * 0.02
-            fc2_w = rng.standard_normal((64, 64)).astype(np.float32) * 0.02
-            fc2_b = rng.standard_normal((64,)).astype(np.float32) * 0.02
-            fc3_w = rng.standard_normal((4, 64)).astype(np.float32) * 0.02
-            fc3_b = rng.standard_normal((4,)).astype(np.float32) * 0.02
+            layer1_w = rng.standard_normal((64, 35)).astype(np.float32) * std
+            layer1_b = np.zeros((64,), dtype=np.float32)
+            layer2_w = rng.standard_normal((64, 64)).astype(np.float32) * std
+            layer2_b = np.zeros((64,), dtype=np.float32)
+            out_w = rng.standard_normal((4, 64)).astype(np.float32) * std
+            out_b = np.zeros((4,), dtype=np.float32)
 
             flat = np.concatenate(
                 [
-                    fc1_w.reshape(-1),
-                    fc1_b.reshape(-1),
-                    fc2_w.reshape(-1),
-                    fc2_b.reshape(-1),
-                    fc3_w.reshape(-1),
-                    fc3_b.reshape(-1),
+                    layer1_w.reshape(-1),
+                    layer1_b.reshape(-1),
+                    layer2_w.reshape(-1),
+                    layer2_b.reshape(-1),
+                    out_w.reshape(-1),
+                    out_b.reshape(-1),
                 ]
             ).astype("<f4", copy=False)
             torch_used = False
         else:
-            class SimpleMLP(nn.Module):  # type: ignore[misc]
+            class AsteroidDecoder(nn.Module):  # type: ignore[misc]
                 def __init__(self) -> None:
                     super().__init__()
-                    self.fc1 = nn.Linear(35, 64)
-                    self.fc2 = nn.Linear(64, 64)
-                    self.fc3 = nn.Linear(64, 4)
-
-                def forward(self, x: "torch.Tensor") -> "torch.Tensor":
-                    x = torch.relu(self.fc1(x))
-                    x = torch.relu(self.fc2(x))
-                    return self.fc3(x)
+                    self.layer1 = nn.Linear(35, 64)
+                    self.layer2 = nn.Linear(64, 64)
+                    self.output = nn.Linear(64, 4)
 
             torch.manual_seed(int(seed))
-            model = SimpleMLP().cpu().eval()
+            model = AsteroidDecoder().cpu().eval()
 
             if state_dict_path is not None:
                 sd = torch.load(str(state_dict_path), map_location="cpu")
                 model.load_state_dict(sd)
+            else:
+                # Force huge random weights to create visible spikes/craters.
+                with torch.no_grad():
+                    nn.init.normal_(model.layer1.weight, mean=0.0, std=2.0)
+                    nn.init.normal_(model.layer2.weight, mean=0.0, std=2.0)
+                    nn.init.normal_(model.output.weight, mean=0.0, std=2.0)
 
-            parts: list[np.ndarray] = []
-            for layer in (model.fc1, model.fc2, model.fc3):
-                w = layer.weight.detach().cpu().contiguous().numpy().astype(np.float32, copy=False)
-                b = layer.bias.detach().cpu().contiguous().numpy().astype(np.float32, copy=False)
-                parts.append(w.reshape(-1))  # row-major
-                parts.append(b.reshape(-1))
+                    # Biases can be zero
+                    nn.init.constant_(model.layer1.bias, 0.0)
+                    nn.init.constant_(model.layer2.bias, 0.0)
+                    nn.init.constant_(model.output.bias, 0.0)
 
-            flat = np.concatenate(parts).astype("<f4", copy=False)
+            flat_buffer: list[np.ndarray] = []
+            for name, param in model.named_parameters():
+                data = param.detach().cpu().contiguous().numpy().astype(np.float32, copy=False).reshape(-1)
+                flat_buffer.append(data)
+                print(f"   -> Packing {name}: {int(data.size)} elements")
+
+            flat = np.concatenate(flat_buffer).astype("<f4", copy=False)
             torch_used = True
 
         out_path = self.out_dir / output_name
@@ -599,14 +610,14 @@ class PlanetariumCompiler:
             "floats": int(flat.size),
             "bytes": int(size),
             "torch_used": bool(torch_used),
-            "layout": ["fc1.weight", "fc1.bias", "fc2.weight", "fc2.bias", "fc3.weight", "fc3.bias"],
+            "layout": ["layer1.weight", "layer1.bias", "layer2.weight", "layer2.bias", "output.weight", "output.bias"],
             "shapes": {
-                "fc1.weight": [64, 35],
-                "fc1.bias": [64],
-                "fc2.weight": [64, 64],
-                "fc2.bias": [64],
-                "fc3.weight": [4, 64],
-                "fc3.bias": [4],
+                "layer1.weight": [64, 35],
+                "layer1.bias": [64],
+                "layer2.weight": [64, 64],
+                "layer2.bias": [64],
+                "output.weight": [4, 64],
+                "output.bias": [4],
             },
         }
 
