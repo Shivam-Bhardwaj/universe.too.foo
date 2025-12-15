@@ -10,6 +10,9 @@
 /universe/
 /data/ephemeris/
 *.bsp
+/assets/
+__pycache__/
+.venv/
 
 # Large legacy data (keep locally, don't commit)
 /legacy assets/

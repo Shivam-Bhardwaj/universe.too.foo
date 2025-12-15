@@ -6,7 +6,7 @@ Implements three pipeline modules:
    compute residuals, decompose into radial/transverse components, quantize to
    int16, and pack into u32.
 2) Registry builder: Object_ID(u32) -> CelestialProperty JSON mapping.
-3) Neural weight exporter: flatten a simple PyTorch MLP into raw float32.
+3) Neural weight exporter: flatten a (mock) PyTorch MLP into raw float32.
 
 Notes
 -----
@@ -516,45 +516,75 @@ class PlanetariumCompiler:
     def export_neural_brain(
         self,
         *,
-        output_name: str = "neural_weights.bin",
+        output_name: str = "neural_decoder.bin",
         seed: int = 0,
         state_dict_path: Optional[str | Path] = None,
     ) -> Dict[str, Any]:
         """Export raw float32 weights for a simple MLP.
 
-        Model: 35 -> 64 -> 4 (Linear + ReLU + Linear).
-        Layout (row-major): W0, b0, W1, b1 as a flat float32 array.
+        Model: 35 -> 64 -> 64 -> 4 (Linear + ReLU + Linear + ReLU + Linear).
+        Layout (row-major): W0, b0, W1, b1, W2, b2 as a flat float32 array.
         """
-        try:
+        # Prefer PyTorch if available (weights can be loaded from a state_dict),
+        # but fall back to deterministic NumPy weights so the Rust/WGPU pipeline
+        # can still be exercised without torch installed.
+        try:  # pragma: no cover
             import torch
             import torch.nn as nn
-        except Exception as e:  # pragma: no cover
-            raise RuntimeError("PyTorch is required. Install with `pip install torch`.") from e
+        except Exception:
+            torch = None  # type: ignore[assignment]
+            nn = None  # type: ignore[assignment]
 
-        class SimpleMLP(nn.Module):
-            def __init__(self) -> None:
-                super().__init__()
-                self.fc1 = nn.Linear(35, 64)
-                self.fc2 = nn.Linear(64, 4)
+        if torch is None or nn is None:
+            rng = np.random.default_rng(int(seed))
+            # Shapes must match WGSL offsets: 35->64->64->4
+            fc1_w = rng.standard_normal((64, 35)).astype(np.float32) * 0.02
+            fc1_b = rng.standard_normal((64,)).astype(np.float32) * 0.02
+            fc2_w = rng.standard_normal((64, 64)).astype(np.float32) * 0.02
+            fc2_b = rng.standard_normal((64,)).astype(np.float32) * 0.02
+            fc3_w = rng.standard_normal((4, 64)).astype(np.float32) * 0.02
+            fc3_b = rng.standard_normal((4,)).astype(np.float32) * 0.02
 
-            def forward(self, x: torch.Tensor) -> torch.Tensor:
-                return self.fc2(torch.relu(self.fc1(x)))
+            flat = np.concatenate(
+                [
+                    fc1_w.reshape(-1),
+                    fc1_b.reshape(-1),
+                    fc2_w.reshape(-1),
+                    fc2_b.reshape(-1),
+                    fc3_w.reshape(-1),
+                    fc3_b.reshape(-1),
+                ]
+            ).astype("<f4", copy=False)
+            torch_used = False
+        else:
+            class SimpleMLP(nn.Module):  # type: ignore[misc]
+                def __init__(self) -> None:
+                    super().__init__()
+                    self.fc1 = nn.Linear(35, 64)
+                    self.fc2 = nn.Linear(64, 64)
+                    self.fc3 = nn.Linear(64, 4)
 
-        torch.manual_seed(int(seed))
-        model = SimpleMLP().cpu().eval()
+                def forward(self, x: "torch.Tensor") -> "torch.Tensor":
+                    x = torch.relu(self.fc1(x))
+                    x = torch.relu(self.fc2(x))
+                    return self.fc3(x)
 
-        if state_dict_path is not None:
-            sd = torch.load(str(state_dict_path), map_location="cpu")
-            model.load_state_dict(sd)
+            torch.manual_seed(int(seed))
+            model = SimpleMLP().cpu().eval()
 
-        parts: list[np.ndarray] = []
-        for layer in (model.fc1, model.fc2):
-            w = layer.weight.detach().cpu().contiguous().numpy().astype(np.float32, copy=False)
-            b = layer.bias.detach().cpu().contiguous().numpy().astype(np.float32, copy=False)
-            parts.append(w.reshape(-1))  # row-major
-            parts.append(b.reshape(-1))
+            if state_dict_path is not None:
+                sd = torch.load(str(state_dict_path), map_location="cpu")
+                model.load_state_dict(sd)
 
-        flat = np.concatenate(parts).astype("<f4", copy=False)
+            parts: list[np.ndarray] = []
+            for layer in (model.fc1, model.fc2, model.fc3):
+                w = layer.weight.detach().cpu().contiguous().numpy().astype(np.float32, copy=False)
+                b = layer.bias.detach().cpu().contiguous().numpy().astype(np.float32, copy=False)
+                parts.append(w.reshape(-1))  # row-major
+                parts.append(b.reshape(-1))
+
+            flat = np.concatenate(parts).astype("<f4", copy=False)
+            torch_used = True
 
         out_path = self.out_dir / output_name
         with open(out_path, "wb") as f:
@@ -568,12 +598,15 @@ class PlanetariumCompiler:
             "output": str(out_path),
             "floats": int(flat.size),
             "bytes": int(size),
-            "layout": ["fc1.weight", "fc1.bias", "fc2.weight", "fc2.bias"],
+            "torch_used": bool(torch_used),
+            "layout": ["fc1.weight", "fc1.bias", "fc2.weight", "fc2.bias", "fc3.weight", "fc3.bias"],
             "shapes": {
                 "fc1.weight": [64, 35],
                 "fc1.bias": [64],
-                "fc2.weight": [4, 64],
-                "fc2.bias": [4],
+                "fc2.weight": [64, 64],
+                "fc2.bias": [64],
+                "fc3.weight": [4, 64],
+                "fc3.bias": [4],
             },
         }
 
@@ -710,12 +743,126 @@ def _demo_orbit(mu: float, n: int = 2048, dt: float = 3600.0) -> Tuple[np.ndarra
     return t, xyz
 
 
+def _demo_planar_orbit_au_days(days: int = 365, seed: int = 0) -> Tuple[np.ndarray, np.ndarray, Dict[str, float]]:
+    """Generate a planar (XY) Earth-like orbit in AU sampled daily.
+
+    This matches the simplified WGSL prototype that operates in AU/day units.
+    """
+    days = int(days)
+    if days <= 2:
+        raise ValueError("days must be >= 3")
+
+    rng = np.random.default_rng(int(seed))
+
+    # Nominal Earth-ish parameters (AU, radians)
+    a = 1.0
+    e = 0.0167
+    inc = 0.0
+    O = 0.0
+    w = math.radians(30.0)
+    M0 = 0.0
+
+    # Gaussian gravitational constant (AU^(3/2) / day)
+    k_gauss = 0.01720209895
+    n = k_gauss / (a ** 1.5)  # rad/day
+
+    t_days = np.arange(days, dtype=np.float64)
+    M = (M0 + n * t_days).astype(np.float64)
+    E = _solve_kepler_eccentric_anomaly(M, e)
+
+    X = a * (np.cos(E) - e)
+    Y = a * (math.sqrt(1.0 - e * e) * np.sin(E))
+
+    cw = math.cos(w)
+    sw = math.sin(w)
+    xw = X * cw - Y * sw
+    yw = X * sw + Y * cw
+
+    base = np.stack([xw, yw, np.zeros_like(xw)], axis=1)
+
+    # Inject small, smooth perturbations in the same radial/transverse basis the shader uses.
+    r_norm = np.linalg.norm(base, axis=1, keepdims=True)
+    r_hat = base / (r_norm + 1e-12)
+    t_hat = np.stack([-r_hat[:, 1], r_hat[:, 0], np.zeros_like(r_hat[:, 0])], axis=1)
+
+    # ~3000 km in AU
+    amp = 3000.0e3 / AU_METERS
+    radial = amp * np.sin(2.0 * math.pi * t_days / 27.0) + 0.15 * amp * rng.standard_normal(t_days.shape)
+    transverse = amp * np.cos(2.0 * math.pi * t_days / 31.0) + 0.15 * amp * rng.standard_normal(t_days.shape)
+
+    xyz = base + r_hat * radial[:, None] + t_hat * transverse[:, None]
+
+    meta = {"a": float(a), "e": float(e), "i": float(inc), "O": float(O), "w": float(w), "M0": float(M0)}
+    return t_days, xyz, meta
+
+
+def _pack_shannon_residuals_planar(
+    t_days: np.ndarray,
+    xyz_au: np.ndarray,
+    *,
+    a: float,
+    e: float,
+    w: float,
+    M0: float,
+    clip_percentile: float = 99.9,
+) -> Tuple[np.ndarray, float]:
+    """Compute planar Kepler prediction and pack radial/transverse residuals into u32 stream."""
+    t_days = np.asarray(t_days, dtype=np.float64).reshape(-1)
+    xyz_au = np.asarray(xyz_au, dtype=np.float64)
+    if xyz_au.ndim != 2 or xyz_au.shape[1] != 3:
+        raise ValueError("xyz_au must have shape (N,3)")
+    if t_days.shape[0] != xyz_au.shape[0]:
+        raise ValueError("t_days and xyz_au must have same length")
+
+    k_gauss = 0.01720209895
+    n = k_gauss / (float(a) ** 1.5)
+
+    M = (float(M0) + n * t_days).astype(np.float64)
+    E = _solve_kepler_eccentric_anomaly(M, float(e))
+
+    X = float(a) * (np.cos(E) - float(e))
+    Y = float(a) * (math.sqrt(1.0 - float(e) * float(e)) * np.sin(E))
+
+    cw = math.cos(float(w))
+    sw = math.sin(float(w))
+    xw = X * cw - Y * sw
+    yw = X * sw + Y * cw
+    base = np.stack([xw, yw, np.zeros_like(xw)], axis=1)
+
+    dr = xyz_au - base
+    r_norm = np.linalg.norm(base, axis=1, keepdims=True)
+    r_hat = base / (r_norm + 1e-12)
+    t_hat = np.stack([-r_hat[:, 1], r_hat[:, 0], np.zeros_like(r_hat[:, 0])], axis=1)
+
+    err_r = np.sum(dr * r_hat, axis=1)
+    err_t = np.sum(dr * t_hat, axis=1)
+
+    vmax = float(np.percentile(np.abs(np.concatenate([err_r, err_t])), float(clip_percentile)))
+    if not math.isfinite(vmax) or vmax <= 0.0:
+        vmax = 1.0
+
+    # Single shared scale (units per LSB), matching shader's `* orbit.residual_scale`.
+    residual_scale = vmax / 32767.0
+
+    q_r = np.rint(err_r / residual_scale).clip(-32768, 32767).astype(np.int16)
+    q_t = np.rint(err_t / residual_scale).clip(-32768, 32767).astype(np.int16)
+
+    packed = _pack_int16_pair_to_u32(q_r, q_t)  # low=radial, high=transverse
+    return packed, float(residual_scale)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Neural Planetarium data compiler")
-    ap.add_argument("--out", default=".", help="Output directory")
+    ap.add_argument("--out", default="assets", help="Output directory (default: assets/)")
     ap.add_argument("--mu", type=float, default=1.32712440018e20, help="Gravitational parameter μ (m^3/s^2)")
 
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd", required=False)
+
+    ap_all = sub.add_parser("build-assets", help="Generate a runnable demo asset set in assets/")
+    ap_all.add_argument("--name", type=str, default="earth", help="Object name prefix (default: earth)")
+    ap_all.add_argument("--days", type=int, default=365, help="Number of daily samples (default: 365)")
+    ap_all.add_argument("--seed", type=int, default=0, help="Seed for demo noise/weights")
+    ap_all.add_argument("--clip-percentile", type=float, default=99.9, help="Percentile for residual scale estimation")
 
     ap_phys = sub.add_parser("compile-physics", help="Fit Kepler elements and emit residuals.bin")
     ap_phys.add_argument("--input", type=str, default=None, help="Input time-series (.npz/.npy/.csv). If omitted, runs a demo orbit.")
@@ -736,13 +883,72 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap_reg.add_argument("--output", type=str, default="registry.json", help="Output filename")
 
     ap_nn = sub.add_parser("export-neural-brain", help="Export raw float32 weights")
-    ap_nn.add_argument("--output", type=str, default="neural_weights.bin", help="Output filename")
+    ap_nn.add_argument("--output", type=str, default="neural_decoder.bin", help="Output filename")
     ap_nn.add_argument("--seed", type=int, default=0, help="Random seed for mock weights")
     ap_nn.add_argument("--load-pth", type=str, default=None, help="Optional .pth state_dict to load before exporting")
 
+    import sys
+    if argv is None:
+        argv = sys.argv[1:]
+    # Convenience: `python3 data_compiler.py` generates demo assets to ./assets/
+    if len(argv) == 0:
+        argv = ["build-assets"]
     args = ap.parse_args(argv)
 
     compiler = PlanetariumCompiler(args.out, mu=args.mu)
+
+    if args.cmd == "build-assets":
+        t_days, xyz_au, meta = _demo_planar_orbit_au_days(days=args.days, seed=args.seed)
+        packed, residual_scale = _pack_shannon_residuals_planar(
+            t_days,
+            xyz_au,
+            a=meta["a"],
+            e=meta["e"],
+            w=meta["w"],
+            M0=meta["M0"],
+            clip_percentile=float(args.clip_percentile),
+        )
+
+        orbit_json_path = Path(args.out) / f"{args.name}_orbit.json"
+        residuals_path = Path(args.out) / f"{args.name}_residuals.bin"
+
+        orbit_json = {
+            "a": float(meta["a"]),
+            "e": float(meta["e"]),
+            "i": float(meta["i"]),
+            "w": float(meta["w"]),
+            "O": float(meta["O"]),
+            "M0": float(meta["M0"]),
+            "residual_scale": float(residual_scale),
+            "count": int(packed.size),
+        }
+
+        with open(orbit_json_path, "w", encoding="utf-8") as f:
+            json.dump(orbit_json, f, indent=2)
+            f.write("\n")
+
+        with open(residuals_path, "wb") as f:
+            f.write(packed.astype("<u4", copy=False).tobytes(order="C"))
+
+        brain_info = compiler.export_neural_brain(output_name="neural_decoder.bin", seed=int(args.seed))
+
+        print(json.dumps(
+            {
+                "orbit_json": str(orbit_json_path),
+                "residuals_bin": str(residuals_path),
+                "neural_decoder_bin": brain_info["output"],
+                "counts": {
+                    "residuals": int(packed.size),
+                    "weights_floats": int(brain_info["floats"]),
+                },
+                "notes": {
+                    "time_unit": "days",
+                    "pos_unit": "AU",
+                },
+            },
+            indent=2,
+        ))
+        return 0
 
     if args.cmd == "compile-physics":
         if args.input is None:
