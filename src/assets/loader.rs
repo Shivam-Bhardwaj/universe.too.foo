@@ -20,6 +20,18 @@ struct OrbitMeta {
     count: u32,
 }
 
+pub struct AssetLoader;
+
+impl AssetLoader {
+    pub fn load_orbit_data(base_path: &str) -> Result<(KeplerParams, Vec<PackedResidual>)> {
+        load_orbit_data(base_path)
+    }
+
+    pub fn load_neural_brain(path: &str) -> Result<Vec<f32>> {
+        load_neural_brain(path)
+    }
+}
+
 pub fn load_orbit_data(base_path: &str) -> Result<(KeplerParams, Vec<PackedResidual>)> {
     // 1) orbit.json
     let json_path = format!("{base_path}_orbit.json");
