@@ -42,7 +42,7 @@
 \author{
     Shivam Bhardwaj\\
     HELIOS Project\\
-    \texttt{https://github.com/helios-project/universe}
+    \texttt{https://github.com/Shivam-Bhardwaj/universe.too.foo}
 }
 
 \date{December 2025}
@@ -52,29 +52,18 @@
 \maketitle
 
 \begin{abstract}
-We present \textbf{Universe}, a novel real-time astronomical visualization system combining 3D Gaussian Splatting, high-fidelity orbital mechanics, and WebRTC streaming for interactive, scientifically-accurate solar system exploration from any web browser. Unlike existing planetarium software relying on pre-rendered assets, Universe renders using differentiable neural representations trained on astronomical catalogs (Gaia DR3, MPCORB), propagates orbital positions across 10,000 years using Keplerian mechanics with secular perturbations, and streams rendered output at 60 FPS via hardware-accelerated encoding. The system achieves astronomical-scale rendering (1 meter to $10^{20}$ meters) without Z-fighting through logarithmic depth buffering, reverse-Z projection, and a novel Heliocentric Logarithmic Grid (HLG) spatial partitioning scheme. We introduce a CUDA-accelerated training backend using tch-rs (LibTorch bindings) achieving convergent loss on real Gaia DR3 data. To our knowledge, this represents the first integration of neural radiance field techniques with astrodynamics simulation for real-time cloud-streamed visualization.
+We describe a browser-based astronomical visualization system that applies 3D Gaussian Splatting to heliocentric datasets spanning from planetary surfaces to the outer solar system. The renderer handles 20 orders of magnitude in spatial scale through a logarithmic depth buffer and spatial partitioning scheme we call the Heliocentric Logarithmic Grid (HLG), which matches the exponential density falloff of orbital mechanics. Training uses a custom CUDA backend built on tch-rs (Rust LibTorch bindings) to optimize Gaussian parameters from catalog data rather than photographs. We trained on 2,000 Gaia DR3 stars achieving L1 loss convergence to 0.006. The implementation supports ±100,000 year time propagation with stellar proper motion and includes a catalog of 49 objects from spacecraft (Voyager 1/2) to distant galaxies (M87 at 53 million ly). WebRTC streaming eliminates client-side GPU requirements. This work demonstrates that neural rendering techniques can be adapted for astronomical visualization where data comes from catalogs rather than images, and where numerical precision requirements exceed typical computer graphics applications by many orders of magnitude.
 \end{abstract}
 
 \section{Introduction}
 
-Astronomical visualization faces a fundamental tension between scientific accuracy and interactive performance. Professional tools like NASA's SPICE toolkit provide sub-kilometer precision but lack real-time visualization. Consumer planetarium software (Stellarium, Celestia) offers interactivity but sacrifices physical accuracy or temporal range.
+The challenge of astronomical visualization lies in reconciling two competing demands: scientific accuracy in representing celestial mechanics, and interactive performance suitable for real-time exploration. Tools used in mission planning (NASA SPICE, GMAT) achieve sub-kilometer precision but operate primarily as batch processors without live 3D rendering. Consumer-oriented planetarium software like Stellarium provides interactive sky views but typically lacks physical orbital integration or limits temporal accuracy to narrow windows.
 
-Universe bridges this gap through:
-\begin{enumerate}
-    \item \textbf{Neural scene representations} (3D Gaussian Splats) trained directly from astronomical catalogs
-    \item \textbf{Mission-grade orbital mechanics} integrated with real-time rendering
-    \item \textbf{GPU-rendered frame streaming} to browsers without client-side GPU requirements
-    \item \textbf{Numerical precision} across 20 orders of magnitude in spatial scale
-\end{enumerate}
+Recent advances in neural rendering, particularly 3D Gaussian Splatting~\cite{kerbl2023gaussian}, have enabled real-time view synthesis of complex scenes. However, these techniques were developed for photographic reconstruction where training data consists of posed images. Astronomical datasets present different characteristics: catalog entries provide positions, magnitudes, and colors rather than photographs; objects span extreme distance and size ranges; temporal dynamics require integration with orbital mechanics rather than static scene assumptions.
 
-\subsection{Key Contributions}
+This work adapts Gaussian Splatting for heliocentric visualization by training directly on catalog data (Gaia DR3, Minor Planet Center orbital elements) rather than images. We address the extreme dynamic range challenge—objects varying from meter-scale spacecraft to $10^{13}$-meter heliosphere boundaries—through a spatial partitioning scheme called the Heliocentric Logarithmic Grid (HLG) combined with logarithmic depth precision techniques. The training backend uses tch-rs, Rust bindings for LibTorch, enabling GPU-accelerated differentiation without Python overhead.
 
-\begin{itemize}
-    \item \textbf{Heliocentric Logarithmic Grid (HLG):} Spatial partitioning using logarithmic radial shells matching astronomical density falloff
-    \item \textbf{Astronomical-Scale Neural Rendering:} First application of 3D Gaussian Splatting to heliocentric visualization with logarithmic depth
-    \item \textbf{tch-rs CUDA Training Backend:} Differentiable rasterizer using raw LibTorch for CUDA-accelerated optimization
-    \item \textbf{Zero-Install Cloud Astronomy:} Browser-accessible exploration via WebRTC streaming
-\end{itemize}
+Our implementation currently handles 2,009 trained Gaussian splats from 1,712 HLG cells representing bright Gaia stars, achieving L1+D-SSIM loss below 0.01. A catalog of 49 landmarks spans from Parker Solar Probe (0.4 AU) to M87 (16.5 Mpc). Time propagation supports ±100,000 years with statistical stellar proper motion models. WebRTC streaming delivers the rendered visualization to standard web browsers at 60 FPS without requiring client-side GPU hardware.
 
 \section{Background}
 
