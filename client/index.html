@@ -591,6 +591,100 @@
         }
 
         /* ------------------------------------------------------------
+           Time Control Panel
+           ------------------------------------------------------------ */
+        #time-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 10, 20, 0.85);
+            border: 1px solid rgba(0, 170, 255, 0.3);
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: #0af;
+            font-size: 12px;
+            min-width: 200px;
+        }
+
+        #time-controls-title {
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: #fff;
+            letter-spacing: 0.5px;
+        }
+
+        #time-offset {
+            font-size: 14px;
+            font-weight: 600;
+            color: #0af;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .time-control-row {
+            display: flex;
+            gap: 8px;
+            margin: 6px 0;
+            align-items: center;
+        }
+
+        .time-btn {
+            padding: 6px 12px;
+            border: 1px solid rgba(0, 170, 255, 0.4);
+            background: rgba(0, 170, 255, 0.1);
+            color: #0af;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+
+        .time-btn:hover {
+            background: rgba(0, 170, 255, 0.25);
+            border-color: #0af;
+        }
+
+        .time-btn:active {
+            transform: scale(0.95);
+        }
+
+        #time-slider {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 4px;
+            background: rgba(0, 170, 255, 0.2);
+            outline: none;
+            border-radius: 2px;
+        }
+
+        #time-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            background: #0af;
+            cursor: pointer;
+            border-radius: 50%;
+            box-shadow: 0 0 8px rgba(0, 170, 255, 0.5);
+        }
+
+        #time-slider::-moz-range-thumb {
+            width: 14px;
+            height: 14px;
+            background: #0af;
+            cursor: pointer;
+            border-radius: 50%;
+            border: none;
+        }
+
+        #time-pause-btn {
+            flex: 1;
+        }
+
+        /* ------------------------------------------------------------
            Whitepaper button and modal
            ------------------------------------------------------------ */
         #whitepaper-btn {
@@ -737,6 +831,29 @@
                     <div><b>Users:</b> <span id="users">--</span></div>
                     <div><b>Jumps:</b> <span id="jumps">--</span></div>
                     <div><b>Data:</b> <span id="dataset">--</span></div>
+                </div>
+            </div>
+
+            <!-- Time Control Panel -->
+            <div id="time-controls">
+                <div id="time-controls-title">TIME TRAVEL</div>
+                <div id="time-offset">J2000 +0 years</div>
+                <div class="time-control-row">
+                    <button class="time-btn" id="time-back-1000">-1000y</button>
+                    <button class="time-btn" id="time-back-100">-100y</button>
+                    <button class="time-btn" id="time-reset">RESET</button>
+                    <button class="time-btn" id="time-fwd-100">+100y</button>
+                    <button class="time-btn" id="time-fwd-1000">+1000y</button>
+                </div>
+                <div class="time-control-row">
+                    <button class="time-btn" id="time-pause-btn">PAUSE</button>
+                    <button class="time-btn" id="time-slower">0.5×</button>
+                    <button class="time-btn" id="time-faster">2×</button>
+                </div>
+                <div class="time-control-row">
+                    <span style="font-size: 10px; opacity: 0.7;">-100ky</span>
+                    <input type="range" id="time-slider" min="-100000" max="100000" value="0" step="100">
+                    <span style="font-size: 10px; opacity: 0.7;">+100ky</span>
                 </div>
             </div>
 

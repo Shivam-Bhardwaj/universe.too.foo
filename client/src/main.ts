@@ -8,6 +8,7 @@ import { WebGlSplatRenderer } from './webgl_splats';
 import { detectRuntime, getRuntimeErrorMessage } from './runtime';
 import { LandmarksManager } from './landmarks';
 import { determineRegime, ScaleRegime } from './scale_system';
+import { ClientTimeController, J2000_JD } from './time_controller';
 
 type Dom = {
     video: HTMLCanvasElement;
@@ -133,6 +134,9 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     camera.origin = { ...camera.position };
     const input = new LocalInputHandler(camera);
     const flightControls = input.getFlightControls();
+
+    // Time controller for ±100,000 year time travel
+    const timeController = new ClientTimeController(J2000_JD);
 
     // Crosshair always visible for targeting
     const crosshairEl = document.getElementById('crosshair');
@@ -774,6 +778,54 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
 
     const compassCanvas = document.getElementById('compass') as HTMLCanvasElement | null;
     const compassCtx = compassCanvas ? (compassCanvas.getContext('2d') as CanvasRenderingContext2D | null) : null;
+
+    // -------------------------------------------------------------------------
+    // Time Controls
+    // -------------------------------------------------------------------------
+    const timeOffsetEl = document.getElementById('time-offset');
+    const timeSlider = document.getElementById('time-slider') as HTMLInputElement | null;
+    const timePauseBtn = document.getElementById('time-pause-btn');
+    const timeResetBtn = document.getElementById('time-reset');
+
+    // Wire up time control buttons
+    document.getElementById('time-back-1000')?.addEventListener('click', () => timeController.addYears(-1000));
+    document.getElementById('time-back-100')?.addEventListener('click', () => timeController.addYears(-100));
+    document.getElementById('time-fwd-100')?.addEventListener('click', () => timeController.addYears(100));
+    document.getElementById('time-fwd-1000')?.addEventListener('click', () => timeController.addYears(1000));
+    document.getElementById('time-slower')?.addEventListener('click', () => timeController.multiplyRate(0.5));
+    document.getElementById('time-faster')?.addEventListener('click', () => timeController.multiplyRate(2.0));
+
+    timeResetBtn?.addEventListener('click', () => {
+        timeController.resetToJ2000();
+        if (timeSlider) timeSlider.value = '0';
+    });
+
+    timePauseBtn?.addEventListener('click', () => {
+        timeController.togglePause();
+        if (timePauseBtn) timePauseBtn.textContent = timeController.isPaused() ? 'PLAY' : 'PAUSE';
+    });
+
+    // Time slider - scrub through ±100,000 years
+    timeSlider?.addEventListener('input', (e) => {
+        const years = parseFloat((e.target as HTMLInputElement).value);
+        const jd = J2000_JD + (years * 365.25);
+        timeController.setJulianDate(jd);
+        timeController.setPaused(true);  // Pause when scrubbing
+        if (timePauseBtn) timePauseBtn.textContent = 'PLAY';
+    });
+
+    // Update time offset display
+    timeController.addListener(() => {
+        if (timeOffsetEl) {
+            timeOffsetEl.textContent = `J2000 ${timeController.getTimeOffsetString()}`;
+        }
+
+        // Update HUD time display
+        const hudTimeEl = document.getElementById('hud-time');
+        if (hudTimeEl) {
+            hudTimeEl.textContent = timeController.toDateString();
+        }
+    });
 
     // Minimap orb (DOM/canvas)
     const navOrbEl = document.getElementById('nav-orb') as HTMLDivElement | null;
@@ -2032,6 +2084,9 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         last = now;
 
         input.update(dt);
+
+        // Update time controller
+        timeController.tick(dt);
 
         // Stream selection / background loading (throttled).
         {
