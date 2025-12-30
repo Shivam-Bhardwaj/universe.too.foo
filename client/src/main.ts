@@ -909,6 +909,10 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         searchCount.textContent = 'Type to search...';
     }
 
+    // Milky Way background canvas
+    const milkywayCanvas = document.getElementById('milkyway-canvas') as HTMLCanvasElement | null;
+    const milkywayCtx = milkywayCanvas ? milkywayCanvas.getContext('2d') : null;
+
     // Minimap orb (DOM/canvas)
     const navOrbEl = document.getElementById('nav-orb') as HTMLDivElement | null;
     const navOrbCanvas = document.getElementById('nav-orb-canvas') as HTMLCanvasElement | null;
@@ -1066,6 +1070,63 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     let sphereDragActive = false;
     let sphereDragStartX = 0;
     let sphereDragStartY = 0;
+
+    // Milky Way background rendering
+    const drawMilkyWay = () => {
+        if (!milkywayCanvas || !milkywayCtx) return;
+
+        const ctx = milkywayCtx;
+        const w = milkywayCanvas.width;
+        const h = milkywayCanvas.height;
+
+        // Determine if we should show Milky Way (galactic distances > 1 Em)
+        const cameraDist = Math.sqrt(camera.position.x ** 2 + camera.position.y ** 2 + camera.position.z ** 2);
+        const GALACTIC_THRESHOLD = 1e18;  // 1 Em (~6.7 ly)
+        const fade = Math.min(1, Math.max(0, (cameraDist - GALACTIC_THRESHOLD * 0.5) / (GALACTIC_THRESHOLD * 1.5)));
+
+        if (milkywayCanvas) {
+            milkywayCanvas.style.opacity = fade.toString();
+        }
+
+        if (fade < 0.01) return;  // Don't render if invisible
+
+        // Clear and draw Milky Way band
+        ctx.clearRect(0, 0, w, h);
+
+        // Draw galactic band as gradient across screen
+        // Simplified: horizontal band representing galactic plane
+        const centerY = h * 0.5;
+        const bandHeight = h * 0.3;
+
+        const gradient = ctx.createLinearGradient(0, centerY - bandHeight, 0, centerY + bandHeight);
+        gradient.addColorStop(0, 'rgba(20, 25, 40, 0)');
+        gradient.addColorStop(0.3, 'rgba(40, 50, 80, 0.15)');
+        gradient.addColorStop(0.5, 'rgba(80, 90, 120, 0.25)');
+        gradient.addColorStop(0.7, 'rgba(40, 50, 80, 0.15)');
+        gradient.addColorStop(1, 'rgba(20, 25, 40, 0)');
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, centerY - bandHeight, w, bandHeight * 2);
+
+        // Add star field texture (noise dots)
+        ctx.fillStyle = 'rgba(200, 210, 255, 0.1)';
+        for (let i = 0; i < 200; i++) {
+            const x = Math.random() * w;
+            const y = centerY + (Math.random() - 0.5) * bandHeight * 1.5;
+            const size = Math.random() * 1.5;
+            ctx.fillRect(x, y, size, size);
+        }
+    };
+
+    // Resize Milky Way canvas to match viewport
+    const resizeMilkyWay = () => {
+        if (!milkywayCanvas) return;
+        const dpr = window.devicePixelRatio || 1;
+        milkywayCanvas.width = milkywayCanvas.clientWidth * dpr;
+        milkywayCanvas.height = milkywayCanvas.clientHeight * dpr;
+    };
+    window.addEventListener('resize', resizeMilkyWay);
+    resizeMilkyWay();
 
     const drawNavOrb = () => {
         if (!navOrbCanvas || !navOrbCtx) return;
@@ -1619,6 +1680,9 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
                 l.el.classList.toggle('active', !!targetBody && targetBody.name === l.body.name);
             }
         }
+
+        // --- Milky Way background ---
+        drawMilkyWay();
 
         // --- Minimap orb ---
         drawNavOrb();
