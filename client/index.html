@@ -1077,7 +1077,7 @@
                 <button id="whitepaper-close-btn">CLOSE [ESC]</button>
             </div>
             <iframe id="whitepaper-frame" src="" title="Universe Whitepaper"></iframe>
-            <a id="whitepaper-download" href="/papers/universe-whitepaper.pdf" download>DOWNLOAD PDF</a>
+            <a id="whitepaper-download" href="/papers/universe-whitepaper.pdf?v=1.1" download>DOWNLOAD PDF</a>
         </div>
     </div>
 
@@ -1092,7 +1092,7 @@
             const frame = document.getElementById('whitepaper-frame');
 
             function openModal() {
-                frame.src = '/papers/universe-whitepaper.pdf';
+                frame.src = '/papers/universe-whitepaper.pdf?v=1.1';
                 modal.classList.add('visible');
                 document.body.style.overflow = 'hidden';
             }
