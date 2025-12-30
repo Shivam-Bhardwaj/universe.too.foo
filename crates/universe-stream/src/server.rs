@@ -157,7 +157,7 @@ pub async fn run_server(config: StreamConfig) -> Result<()> {
     ));
 
     // Create streaming server
-    let (streaming, mut input_rx) = StreamingServer::new();
+    let (streaming, mut input_rx) = StreamingServer::new(&config.universe);
 
     // Shared input state for tracking held keys
     let input_state = Arc::new(RwLock::new(InputState::default()));

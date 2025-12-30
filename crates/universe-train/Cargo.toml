@@ -3,15 +3,22 @@ name = "universe-train"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+torch = ["dep:tch"]
+
 [dependencies]
+# Optional: LibTorch bindings for CUDA training
+tch = { version = "0.22", optional = true }
 universe-core = { path = "../universe-core" }
 universe-data = { path = "../universe-data" }
 
 # Burn ML framework with WGPU backend
-burn = { version = "0.19", features = ["wgpu", "autodiff", "train"] }
+burn = { version = "0.19", features = ["wgpu", "autodiff", "train", "ndarray"] }
 burn-wgpu = "0.19"
 burn-autodiff = "0.19"
 burn-tensor = "0.19"
+burn-ndarray = "0.19"
 
 # Image processing
 image = "0.25"

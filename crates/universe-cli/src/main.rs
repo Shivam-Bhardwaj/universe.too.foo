@@ -195,6 +195,9 @@ enum Commands {
         /// Training iterations
         #[arg(long, default_value = "500")]
         iterations: usize,
+        /// Training backend: wgpu, torch-cuda, torch-cpu
+        #[arg(long, default_value = "wgpu")]
+        backend: String,
     },
 
     /// Train all cells in universe
@@ -208,6 +211,9 @@ enum Commands {
         /// Training iterations per cell
         #[arg(long, default_value = "500")]
         iterations: usize,
+        /// Training backend: wgpu, torch-cuda, torch-cpu
+        #[arg(long, default_value = "wgpu")]
+        backend: String,
     },
 
     /// Generate landmarks.json from dataset (brightest/highest quality stars)
@@ -597,45 +603,98 @@ async fn main() -> Result<()> {
             universe_stream::run_server(config).await?;
         }
 
-        Commands::TrainCell { input, output, iterations } => {
-            use burn_autodiff::Autodiff;
-            use burn_wgpu::{Wgpu, WgpuDevice};
-
-            type Backend = Autodiff<Wgpu>;
-            let device = WgpuDevice::default();
-
-            let cell = universe_data::CellData::load(&input)?;
-
+        Commands::TrainCell { input, output, iterations, backend } => {
             let config = universe_train::TrainConfig {
                 iterations,
                 ..Default::default()
             };
 
-            let trainer = universe_train::Trainer::<Backend>::new(config, device);
-            let trained = trainer.train_cell(&cell)?;
+            match backend.as_str() {
+                "wgpu" => {
+                    use burn_autodiff::Autodiff;
+                    use burn_wgpu::{Wgpu, WgpuDevice};
 
-            let mut out_cell = universe_data::CellData::new(cell.metadata.id, cell.metadata.bounds);
-            for s in trained {
-                out_cell.add_splat(s);
+                    type Backend = Autodiff<Wgpu>;
+                    let device = WgpuDevice::default();
+
+                    let cell = universe_data::CellData::load(&input)?;
+                    let trainer = universe_train::Trainer::<Backend>::new(config, device);
+                    let trained = trainer.train_cell(&cell)?;
+
+                    let mut out_cell = universe_data::CellData::new(cell.metadata.id, cell.metadata.bounds);
+                    for s in trained {
+                        out_cell.add_splat(s);
+                    }
+                    out_cell.save(&output)?;
+                }
+                #[cfg(feature = "torch")]
+                "torch-cuda" | "torch-cpu" => {
+                    use universe_train::torch_backend::{TorchDevice, TorchTrainer};
+
+                    let device = if backend == "torch-cuda" {
+                        TorchDevice::cuda_if_available()
+                    } else {
+                        TorchDevice::Cpu
+                    };
+
+                    let cell = universe_data::CellData::load(&input)?;
+                    let trainer = TorchTrainer::new(config, device)?;
+                    let trained = trainer.train_cell(&cell)?;
+
+                    let mut out_cell = universe_data::CellData::new(cell.metadata.id, cell.metadata.bounds);
+                    for s in trained {
+                        out_cell.add_splat(s);
+                    }
+                    out_cell.save(&output)?;
+                }
+                #[cfg(not(feature = "torch"))]
+                "torch-cuda" | "torch-cpu" => {
+                    anyhow::bail!("Torch backend not available. Rebuild with --features torch");
+                }
+                _ => {
+                    anyhow::bail!("Unknown backend '{}'. Use: wgpu, torch-cuda, torch-cpu", backend);
+                }
             }
-            out_cell.save(&output)?;
 
             println!("Trained {} -> {}", input.display(), output.display());
         }
 
-        Commands::TrainAll { input, output, iterations } => {
-            use burn_autodiff::Autodiff;
-            use burn_wgpu::{Wgpu, WgpuDevice};
-
-            type Backend = Autodiff<Wgpu>;
-            let device = WgpuDevice::default();
-
+        Commands::TrainAll { input, output, iterations, backend } => {
             let config = universe_train::TrainConfig {
                 iterations,
                 ..Default::default()
             };
 
-            universe_train::train_universe::<Backend>(&input, &output, config, device)?;
+            match backend.as_str() {
+                "wgpu" => {
+                    use burn_autodiff::Autodiff;
+                    use burn_wgpu::{Wgpu, WgpuDevice};
+
+                    type Backend = Autodiff<Wgpu>;
+                    let device = WgpuDevice::default();
+
+                    universe_train::train_universe::<Backend>(&input, &output, config, device)?;
+                }
+                #[cfg(feature = "torch")]
+                "torch-cuda" | "torch-cpu" => {
+                    use universe_train::torch_backend::{train_universe, TorchDevice};
+
+                    let device = if backend == "torch-cuda" {
+                        TorchDevice::cuda_if_available()
+                    } else {
+                        TorchDevice::Cpu
+                    };
+
+                    train_universe(&input, &output, config, device)?;
+                }
+                #[cfg(not(feature = "torch"))]
+                "torch-cuda" | "torch-cpu" => {
+                    anyhow::bail!("Torch backend not available. Rebuild with --features torch");
+                }
+                _ => {
+                    anyhow::bail!("Unknown backend '{}'. Use: wgpu, torch-cuda, torch-cpu", backend);
+                }
+            }
         }
 
         Commands::GenerateLandmarks { universe, stars, count, output, method } => {

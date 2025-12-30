@@ -59,10 +59,41 @@ cargo run -p universe-cli -- build \
 
 Note: this repo currently includes a sample Gaia CSV at `legacy assets/gaia_stars.csv` (may be removed later).
 
-If you don’t have a catalog yet, you can build synthetic stars instead:
+If you don't have a catalog yet, you can build synthetic stars instead:
 
 ```bash
 cargo run -p universe-cli -- build --synthetic 50000 --output universe
+```
+
+### Real Gaia DR3 POC (with CUDA training)
+
+For a real-data proof of concept using Gaia DR3:
+
+```bash
+# 1. Fetch bright stars from Gaia Archive
+curl -G "https://gea.esac.esa.int/tap-server/tap/sync" \
+  --data-urlencode "REQUEST=doQuery" \
+  --data-urlencode "LANG=ADQL" \
+  --data-urlencode "FORMAT=csv" \
+  --data-urlencode "QUERY=SELECT TOP 2000 source_id,ra,dec,parallax,phot_g_mean_mag,bp_rp FROM gaiadr3.gaia_source WHERE phot_g_mean_mag < 10 AND parallax > 0" \
+  -o data/gaia_poc.csv
+
+# 2. Build universe from Gaia CSV
+cargo run --release -p universe-cli -- build \
+  --stars data/gaia_poc.csv \
+  --max-mag 10 \
+  --limit 2000 \
+  --output universe_gaia_poc
+
+# 3. Train with tch-rs CUDA backend (requires torch feature)
+# Note: LD_PRELOAD forces CUDA library loading
+export LIBTORCH_USE_PYTORCH=1
+LD_PRELOAD="$(python3 -c 'import torch; print(torch.__path__[0])')/lib/libtorch_cuda.so" \
+  cargo run --release --features torch -p universe-cli -- train-all \
+    --input universe_gaia_poc \
+    --output universe_gaia_poc_trained \
+    --iterations 200 \
+    --backend torch-cuda
 ```
 
 ### 2) Run the server
@@ -111,6 +142,17 @@ The client automatically detects your browser and shows appropriate warnings if 
 ```
 
 Cloudflare tunnel routes are in `cloudflare/config.yml`.
+
+## Client query params (useful for debugging)
+
+- **Renderer / loader selection**:
+  - `?engine=auto` (default): try WASM cell loader, fall back to TypeScript if init fails
+  - `?engine=wasm`: force WASM (fails fast if WASM can’t init)
+  - `?engine=ts`: force TypeScript loader
+- **Debug overlay**:
+  - `?debugOverlay=1` (or `?debug=1`): shows renderer, loader, cell cache stats, FPS
+- **Stream mode (debug-only)**:
+  - `?mode=stream&debug=1`
 
 ## Controls (browser)
 

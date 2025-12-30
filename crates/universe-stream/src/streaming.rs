@@ -85,10 +85,12 @@ pub struct StreamingServer {
     clients: Arc<RwLock<Vec<Client>>>,
     /// Input event sender (receiver is returned from new())
     input_tx: mpsc::Sender<InputEvent>,
+    /// Universe dataset directory (for serving static files)
+    universe_dir: std::path::PathBuf,
 }
 
 impl StreamingServer {
-    pub fn new() -> (Self, mpsc::Receiver<InputEvent>) {
+    pub fn new(universe_dir: impl Into<std::path::PathBuf>) -> (Self, mpsc::Receiver<InputEvent>) {
         let (frame_tx, _) = broadcast::channel(4);
         let (h264_tx, _) = broadcast::channel(64);
         let (h264_cfg_tx, _) = watch::channel(None);
@@ -102,6 +104,7 @@ impl StreamingServer {
             output_tx,
             clients: Arc::new(RwLock::new(Vec::new())),
             input_tx,
+            universe_dir: universe_dir.into(),
         };
 
         (server, input_rx)
@@ -153,7 +156,7 @@ impl StreamingServer {
             .route("/control", get(control_handler))
             // Serve the on-disk universe dataset (index.json + cells/*.bin) over HTTP.
             // This enables client-side rendering modes that stream dataset chunks instead of video.
-            .nest_service("/universe", ServeDir::new("universe"))
+            .nest_service("/universe", ServeDir::new(&self.universe_dir))
             .fallback_service(ServeDir::new("client/dist").append_index_html_on_directories(true))
             .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
             .with_state(self)

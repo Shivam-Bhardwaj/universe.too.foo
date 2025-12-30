@@ -164,7 +164,62 @@ All phases from the plan have been implemented. This document summarizes what wa
 4. **Benchmark compression**: Measure compression ratios and decode times
 5. **Optimize**: Based on Phase 5.3 validation results
 
-All planned phases are complete! 🎉
+## Phase 6: tch-rs CUDA Training Backend ✅
+
+### Phase 6.1: Add tch-rs dependencies
+- Added `tch = { version = "0.22", optional = true }` to `universe-train/Cargo.toml`
+- Feature flag: `torch` enables CUDA backend
+- Forwards to CLI crate for `--backend torch-cuda` option
+
+### Phase 6.2: Create torch_backend module
+- Created `crates/universe-train/src/torch_backend/mod.rs`
+- **trainer.rs**: `TorchTrainer` with `train_cell()` and `train_universe()`
+- **rasterizer.rs**: Differentiable Gaussian rasterizer using tch tensor ops
+- **loss.rs**: L1 + D-SSIM combined loss function
+
+### Phase 6.3: Implement TorchTrainer
+- `TorchDevice::cuda_if_available()` for automatic device selection
+- `nn::VarStore` pattern for proper optimizer integration
+- `nn::Adam` optimizer with configurable learning rate
+- Camera generation using actual splat positions (not cell centroid)
+- Dynamic near/far plane calculation for astronomical scales (1e10 - 1e18 meters)
+- Training loop with loss tracking and progress bar
+
+### Phase 6.4: Implement differentiable rasterizer
+- `quaternion_to_rotation_matrix()`: [N, 4] → [N, 3, 3] batched conversion
+- `build_covariance_3d()`: Σ = R · S · S^T · R^T
+- `project_covariance_2d()`: Jacobian-based projection to screen space
+- `invert_to_conic()`: Convert 2D covariance to conic form
+- `evaluate_gaussians()`: Per-pixel Gaussian evaluation with 3σ cutoff
+- `alpha_blend()`: Back-to-front compositing with depth sorting
+- Matrix conversion fix: glam column-major → tch row-major via transpose
+
+### Phase 6.5: Real Gaia DR3 POC
+- Fetched 2,000 bright stars (G < 10) from Gaia Archive TAP sync
+- Built POC universe: 1,712 cells, 2,009 splats
+- Training validates with loss decrease: ~0.13 → ~0.006
+
+### Phase 6.6: CUDA environment setup
+- `LIBTORCH_USE_PYTORCH=1` to use PyTorch's bundled libtorch
+- `LD_PRELOAD` required to force `libtorch_cuda.so` loading at runtime
+- Documented in README.md and whitepaper
+
+### Files Created:
+- `crates/universe-train/src/torch_backend/mod.rs`
+- `crates/universe-train/src/torch_backend/trainer.rs`
+- `crates/universe-train/src/torch_backend/rasterizer.rs`
+- `crates/universe-train/src/torch_backend/loss.rs`
+
+### Files Modified:
+- `crates/universe-train/Cargo.toml` - Added tch dependency
+- `crates/universe-train/src/lib.rs` - Conditional torch_backend export
+- `crates/universe-train/src/camera.rs` - Dynamic near/far calculation
+- `crates/universe-train/src/ground_truth.rs` - NaN-safe sorting
+- `crates/universe-cli/src/main.rs` - Added --backend flag
+
+All planned phases are complete!
+
+
 
 
 

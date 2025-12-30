@@ -147,7 +147,7 @@ Universe applies these techniques to scientific visualization, where:
 | Component | Technology | Purpose |
 |-----------|------------|---------|
 | Data Pipeline | Rust + ANISE | Ingest ephemeris, star catalogs |
-| Training | Burn + WGPU | Optimize Gaussian Splat parameters |
+| Training | Burn + WGPU / **tch-rs + CUDA** | Optimize Gaussian Splat parameters |
 | Orbital Engine | Custom Keplerian | 10,000-year propagation |
 | Renderer | WGPU + WGSL | Real-time GPU rendering |
 | Encoder | NVENC (H.264) | Hardware video compression |
@@ -268,29 +268,677 @@ struct GaussianSplat {
 - Atmosphere halo (gas giants)
 - Ring systems (Saturn, Uranus)
 
-### 5.2 Training Pipeline
+### 5.2 Spherical Coordinate Representation
 
-Unlike photographic NeRF training, astronomical Gaussians are initialized from catalog data:
+Unlike traditional Gaussian Splatting which uses Cartesian coordinates, Universe employs **heliocentric spherical coordinates** that naturally align with the HLG spatial partitioning and exploit the structure of astronomical data.
 
-**Input Sources:**
-- **Gaia DR3:** 1.8 billion stars with positions, parallax, magnitudes, colors
-- **NASA DE440:** Planetary ephemeris (1550-2650 AD coverage)
-- **Minor Planet Center:** Asteroid orbital elements
-
-**Training Process:**
-1. **Initialization:** Place Gaussians at catalog positions with estimated scales/colors
-2. **Ground Truth Generation:** Render reference images from multiple viewpoints
-3. **Optimization:** Gradient descent on L1 + D-SSIM loss
-4. **Densification:** Clone/split high-gradient splats
-5. **Pruning:** Remove low-opacity splats
-
-**Loss Function:**
+**Traditional Cartesian Splats:**
+```rust
+struct GaussianSplat {
+    position: [f32; 3],        // (x, y, z) in meters
+    scale: [f32; 3],           // (sx, sy, sz)
+    rotation: [f32; 4],        // Arbitrary quaternion
+    color: [f32; 3],
+    opacity: f32,
+}  // 56 bytes
 ```
-L = (1 - λ) × L1(rendered, target) + λ × D-SSIM(rendered, target)
-```
-where `λ = 0.2` and `D-SSIM = (1 - SSIM) / 2`.
 
-### 5.3 Rendering Pipeline
+**Heliocentric Spherical Splats:**
+```rust
+struct SphericalGaussianSplat {
+    r: f32,                    // Radial distance (AU or log-encoded)
+    theta: f32,                // Ecliptic longitude [0, 2π)
+    phi: f32,                  // Ecliptic latitude [-π/2, π/2]
+    scale_r: f32,              // Radial spread (AU)
+    scale_angular: f32,        // Angular spread (radians)
+    color: [f32; 3],           // RGB
+    opacity: f32,
+}  // 32 bytes (44% size reduction)
+```
+
+**Advantages:**
+
+1. **Natural HLG alignment:** Cell assignment is direct: `L = floor(log(r/r_min) / log(b))`
+2. **Compression efficiency:** Delta-encoding from cell centroid yields smaller values
+3. **Reduced parameters:** Spherical symmetry eliminates redundant rotation degrees of freedom
+4. **Physical interpretation:** Scales match astronomical observables (distance, angular size)
+
+**Coordinate transformation for rendering:**
+```rust
+fn spherical_to_cartesian(r: f32, theta: f32, phi: f32) -> Vec3 {
+    Vec3::new(
+        r * phi.cos() * theta.cos(),
+        r * phi.cos() * theta.sin(),
+        r * phi.sin()
+    )
+}
+
+fn spherical_covariance_to_cartesian(
+    r: f32, theta: f32, phi: f32,
+    sigma_r: f32, sigma_ang: f32
+) -> Mat3 {
+    // Spherical basis vectors
+    let e_r = Vec3::new(
+        phi.cos() * theta.cos(),
+        phi.cos() * theta.sin(),
+        phi.sin()
+    );
+    let e_theta = Vec3::new(-theta.sin(), theta.cos(), 0.0);
+    let e_phi = Vec3::new(
+        -phi.sin() * theta.cos(),
+        -phi.sin() * theta.sin(),
+        phi.cos()
+    );
+
+    // Jacobian matrix J = [e_r | e_theta | e_phi]
+    let J = Mat3::from_cols(e_r, e_theta, e_phi);
+
+    // Diagonal covariance in spherical basis
+    let sigma_sph = Mat3::from_diagonal(Vec3::new(
+        sigma_r * sigma_r,
+        sigma_ang * sigma_ang,
+        sigma_ang * sigma_ang
+    ));
+
+    // Transform: Σ_cart = J · Σ_sph · J^T
+    J * sigma_sph * J.transpose()
+}
+```
+
+### 5.3 Catalog Data Ingestion
+
+**Gaia DR3 Processing Pipeline:**
+
+```python
+from astropy.io import fits
+from astropy.coordinates import SkyCoord
+import astropy.units as u
+
+def ingest_gaia_catalog(fits_path: str, magnitude_limit: float = 12.0):
+    """
+    Convert Gaia DR3 FITS catalog to heliocentric spherical splats.
+
+    Gaia provides:
+    - RA, Dec (ICRS J2000)
+    - Parallax (milliarcseconds)
+    - G, BP, RP magnitudes
+    - Proper motion (μ_RA, μ_Dec in mas/yr)
+    """
+    with fits.open(fits_path) as hdul:
+        data = hdul[1].data
+
+    # Filter by magnitude
+    mask = data['phot_g_mean_mag'] < magnitude_limit
+    stars = data[mask]
+
+    splats = []
+    for star in stars:
+        # Convert to heliocentric spherical
+        parallax_mas = star['parallax']
+        if parallax_mas <= 0:
+            continue  # Invalid parallax
+
+        # Distance in AU
+        r = (1000.0 / parallax_mas) * 206265  # mas -> AU
+
+        # RA/Dec (ICRS) -> Ecliptic coordinates
+        coord = SkyCoord(
+            ra=star['ra'] * u.deg,
+            dec=star['dec'] * u.deg,
+            distance=r * u.AU,
+            frame='icrs'
+        ).transform_to('barycentricmeanecliptic')
+
+        theta = coord.lon.rad  # Ecliptic longitude
+        phi = coord.lat.rad    # Ecliptic latitude
+
+        # Estimate physical radius from absolute magnitude
+        M_abs = star['phot_g_mean_mag'] + 5 - 5 * np.log10(r / 10.0)
+        radius_solar = 10 ** ((4.83 - M_abs) / 5.0)  # Solar radii
+        radius_au = radius_solar * 0.00465  # Convert to AU
+
+        # Color from BP-RP (Gaia photometry)
+        bp_rp = star['bp_rp']
+        rgb = bp_rp_to_rgb(bp_rp)  # Blackbody approximation
+
+        # Opacity from apparent magnitude (brighter = more opaque)
+        opacity = 10 ** (-star['phot_g_mean_mag'] / 5.0)
+        opacity = np.clip(opacity, 0.01, 1.0)
+
+        splats.append(SphericalGaussianSplat(
+            r=r,
+            theta=theta,
+            phi=phi,
+            scale_r=radius_au,
+            scale_angular=np.arctan(radius_au / r),  # Angular size
+            color=rgb,
+            opacity=opacity
+        ))
+
+    return splats
+
+def bp_rp_to_rgb(bp_rp: float) -> [f32; 3]:
+    """Convert Gaia BP-RP color to RGB via blackbody."""
+    # BP-RP ranges from -0.5 (blue) to 2.0 (red)
+    # Map to temperature: T ≈ 10000 / (0.92 * BP-RP + 1.7) K
+    temp = 10000 / (0.92 * bp_rp + 1.7)
+
+    # Blackbody RGB approximation (simplified Planck)
+    if temp < 6600:
+        r = 1.0
+        g = (temp / 100 - 60) * 0.39 + 0.6
+        b = 0.0 if temp < 2000 else (temp / 100 - 10) * 0.18
+    else:
+        r = ((temp / 100 - 60) * -0.13 + 1.3)
+        g = ((temp / 100 - 60) * -0.09 + 1.1)
+        b = 1.0
+
+    return [np.clip(r, 0, 1), np.clip(g, 0, 1), np.clip(b, 0, 1)]
+```
+
+**MPCORB Asteroid Processing:**
+
+```python
+def ingest_mpcorb_catalog(mpcorb_path: str, epoch_jd: float):
+    """
+    Convert Minor Planet Center orbital elements to splats.
+    """
+    asteroids = parse_mpcorb(mpcorb_path)  # See compile_belt.py
+
+    splats = []
+    for ast in asteroids:
+        # Propagate to epoch
+        pos = propagate_keplerian(ast.elements, epoch_jd)
+
+        # Cartesian -> Spherical
+        r = np.linalg.norm(pos)
+        theta = np.arctan2(pos[1], pos[0])
+        phi = np.arcsin(pos[2] / r)
+
+        # Asteroid size from absolute magnitude H
+        # Diameter (km) ≈ 1329 / sqrt(albedo) * 10^(-H/5)
+        albedo = 0.14  # Typical C-type
+        diameter_km = 1329 / np.sqrt(albedo) * 10 ** (-ast.H / 5)
+        radius_au = diameter_km / (2 * 1.496e8)  # km -> AU
+
+        # Asteroid color (taxonomy-based)
+        rgb = taxonomy_color(ast.taxonomy)
+
+        splats.append(SphericalGaussianSplat(
+            r=r,
+            theta=theta,
+            phi=phi,
+            scale_r=radius_au,
+            scale_angular=np.arctan(radius_au / r),
+            color=rgb,
+            opacity=0.8
+        ))
+
+    return splats
+```
+
+### 5.4 Differentiable Rasterizer
+
+The core ML component is a differentiable rasterizer that projects spherical Gaussians to screen space and enables gradient-based optimization.
+
+**High-level algorithm:**
+
+```rust
+fn render_spherical_gaussians<B: Backend>(
+    r: Tensor<B, 1>,           // [N] radial distances
+    theta: Tensor<B, 1>,       // [N] longitudes
+    phi: Tensor<B, 1>,         // [N] latitudes
+    scale_r: Tensor<B, 1>,     // [N] radial scales
+    scale_ang: Tensor<B, 1>,   // [N] angular scales
+    colors: Tensor<B, 2>,      // [N, 3] RGB
+    opacities: Tensor<B, 1>,   // [N] alpha
+    camera: Camera,
+    config: RasterizerConfig,
+) -> Tensor<B, 3> {  // [H, W, 3] rendered image
+
+    // 1. Convert spherical -> Cartesian positions
+    let (x, y, z) = spherical_to_cartesian_batch(r, theta, phi);
+
+    // 2. Transform 3D covariance: spherical basis -> Cartesian
+    let cov_3d = spherical_covariance_to_cartesian_batch(
+        r, theta, phi, scale_r, scale_ang
+    );
+
+    // 3. Project to camera space
+    let (pos_cam, cov_cam) = transform_to_camera(x, y, z, cov_3d, camera);
+
+    // 4. Perspective projection with Jacobian
+    let (screen_pos, cov_2d) = project_perspective(pos_cam, cov_cam, camera);
+
+    // 5. Depth sort (use differentiable sorting or straight-through)
+    let (sorted_indices, depths) = depth_sort(pos_cam, screen_pos);
+
+    // 6. Tile-based rasterization
+    tile_rasterize(
+        screen_pos.select(0, sorted_indices),
+        cov_2d.select(0, sorted_indices),
+        colors.select(0, sorted_indices),
+        opacities.select(0, sorted_indices),
+        depths,
+        config
+    )
+}
+```
+
+**Perspective projection with covariance:**
+
+```rust
+fn project_perspective<B: Backend>(
+    pos_cam: Tensor<B, 2>,    // [N, 3] in camera space
+    cov_3d: Tensor<B, 3>,     // [N, 3, 3] covariance matrices
+    camera: &Camera,
+) -> (Tensor<B, 2>, Tensor<B, 3>) {
+    let x = pos_cam.clone().select(1, 0);
+    let y = pos_cam.clone().select(1, 1);
+    let z = pos_cam.clone().select(1, 2);
+
+    let fx = camera.focal_length_x;
+    let fy = camera.focal_length_y;
+
+    // Screen position
+    let u = fx * x / z;
+    let v = fy * y / z;
+    let screen_pos = Tensor::stack(vec![u, v], 1);
+
+    // Jacobian of perspective projection
+    // J = d(u,v) / d(x,y,z)
+    let z_inv = z.recip();
+    let z_inv2 = z_inv.clone() * z_inv.clone();
+
+    let J_00 = fx * z_inv.clone();
+    let J_01 = Tensor::zeros_like(&z);
+    let J_02 = -fx * x * z_inv2.clone();
+    let J_10 = Tensor::zeros_like(&z);
+    let J_11 = fy * z_inv.clone();
+    let J_12 = -fy * y * z_inv2;
+
+    // J is [N, 2, 3]
+    let J = stack_jacobian(J_00, J_01, J_02, J_10, J_11, J_12);
+
+    // 2D covariance: Σ_2d = J · Σ_3d · J^T
+    let cov_2d = J.matmul(cov_3d).matmul(J.transpose());
+
+    (screen_pos, cov_2d)
+}
+```
+
+**Tile-based alpha blending (simplified):**
+
+```rust
+fn tile_rasterize<B: Backend>(
+    screen_pos: Tensor<B, 2>,   // [N, 2]
+    cov_2d: Tensor<B, 3>,       // [N, 2, 2]
+    colors: Tensor<B, 2>,       // [N, 3]
+    opacities: Tensor<B, 1>,    // [N]
+    depths: Tensor<B, 1>,       // [N] (for validation)
+    config: RasterizerConfig,
+) -> Tensor<B, 3> {
+    let (H, W) = (config.image_height, config.image_width);
+
+    // Create pixel grid [H, W, 2]
+    let pixel_coords = create_pixel_grid::<B>(H, W);
+
+    // Expand for broadcasting: [H, W, 1, 2] and [1, 1, N, 2]
+    let pixels = pixel_coords.unsqueeze_dim(2);  // [H, W, 1, 2]
+    let centers = screen_pos.unsqueeze_dim(0).unsqueeze_dim(0);  // [1, 1, N, 2]
+
+    // Offset: [H, W, N, 2]
+    let offset = pixels - centers;
+
+    // Evaluate 2D Gaussian: exp(-0.5 * offset^T · Σ^-1 · offset)
+    // Σ^-1 for 2x2: inverse via determinant
+    let cov_inv = invert_2x2_batch(cov_2d);  // [N, 2, 2]
+
+    // Mahalanobis distance: d^2 = offset^T · Σ^-1 · offset
+    // [H, W, N]
+    let dist_sq = mahalanobis_distance(offset, cov_inv);
+
+    // Gaussian weight
+    let gaussian = (-0.5 * dist_sq).exp();
+
+    // Alpha: [H, W, N]
+    let alpha = gaussian * opacities.unsqueeze_dim(0).unsqueeze_dim(0);
+
+    // Alpha blending (back-to-front)
+    // C = Σ_i c_i * α_i * Π_{j<i} (1 - α_j)
+    let mut image = Tensor::zeros([H, W, 3], &colors.device());
+    let mut transmittance = Tensor::ones([H, W], &colors.device());
+
+    for i in 0..colors.dims()[0] {
+        let c_i = colors.clone().select(0, i);  // [3]
+        let a_i = alpha.clone().select(2, i);   // [H, W]
+
+        // Contribution: c_i * a_i * T
+        let contrib = c_i.unsqueeze_dim(0).unsqueeze_dim(0) *
+                     a_i.unsqueeze_dim(2) *
+                     transmittance.clone().unsqueeze_dim(2);
+
+        image = image + contrib;
+        transmittance = transmittance * (Tensor::ones_like(&a_i) - a_i);
+    }
+
+    image.clamp(0.0, 1.0)
+}
+```
+
+**Note:** This is a simplified reference implementation. Production systems use tile-based GPU kernels with early termination and sparse evaluation.
+
+### 5.5 Training Loop
+
+**Multi-scale camera generation:**
+
+Since users can "jump" to any heliocentric position, training must cover cameras at multiple radial shells:
+
+```python
+def generate_training_cameras(hlg_config: HLGConfig, samples_per_shell: int):
+    """
+    Generate camera positions covering all HLG shells.
+    """
+    cameras = []
+
+    for L in range(hlg_config.max_shell):
+        r_shell = hlg_config.r_min * (hlg_config.base ** L)
+
+        # Sample uniformly on sphere at this radius
+        for _ in range(samples_per_shell):
+            theta = np.random.uniform(0, 2 * np.pi)
+            phi = np.random.uniform(-np.pi/2, np.pi/2)
+
+            pos = spherical_to_cartesian(r_shell, theta, phi)
+
+            # Random orientation (look towards Sun with perturbation)
+            look_dir = -pos / np.linalg.norm(pos)
+            up = random_perpendicular(look_dir)
+
+            cameras.append(Camera(
+                position=pos,
+                forward=look_dir,
+                up=up,
+                fov=60.0,
+                aspect=16.0/9.0
+            ))
+
+    return cameras
+```
+
+**Per-cell training:**
+
+```rust
+impl<B: AutodiffBackend> Trainer<B> {
+    pub fn train_cell(&self, cell: &CellData) -> Result<Vec<GaussianSplat>> {
+        // Initialize learnable parameters from catalog
+        let mut model = SphericalGaussianCloud::<B>::from_catalog(
+            &self.device,
+            cell.splats  // Initial positions from Gaia/MPCORB
+        );
+
+        let mut optim = AdamConfig::new()
+            .with_learning_rate(0.001)
+            .init();
+
+        // Generate cameras appropriate for this cell's shell
+        let L = cell.metadata.id.l;
+        let r_cell = self.hlg_config.r_min * (2.0_f32).powi(L as i32);
+        let cameras = self.generate_cameras_for_shell(r_cell);
+
+        // Ground truth renderer (catalog-based reference)
+        let gt_renderer = CatalogRenderer::new(cell);
+
+        for iter in 0..self.config.iterations {
+            let mut total_loss = 0.0;
+
+            for cam_idx in 0..self.config.views_per_iter {
+                let camera = &cameras[iter % cameras.len()];
+
+                // Render ground truth from catalog
+                let gt_image = gt_renderer.render_catalog(camera);
+                let gt_tensor = image_to_tensor::<B>(&gt_image, &self.device);
+
+                // Forward pass: render learned splats
+                let rendered = render_spherical_gaussians(
+                    model.r.val(),
+                    model.theta.val(),
+                    model.phi.val(),
+                    model.scale_r.val(),
+                    model.scale_ang.val(),
+                    model.colors.val(),
+                    model.opacities(),
+                    camera,
+                    &self.raster_config
+                );
+
+                // Loss: L1 + D-SSIM
+                let loss = combined_loss(rendered, gt_tensor, 0.2);
+                total_loss += loss.clone().into_scalar().elem::<f32>();
+
+                // Backward pass
+                let grads = loss.backward();
+                let grads_params = GradientsParams::from_grads(grads, &model);
+                model = optim.step(0.001, model, grads_params);
+            }
+
+            // Adaptive density control
+            if iter % 100 == 0 && iter < 800 {
+                model = self.densify_and_prune(model);
+            }
+        }
+
+        // Convert to Cartesian for storage
+        Ok(model.to_cartesian_splats())
+    }
+
+    fn densify_and_prune(&self, model: SphericalGaussianCloud<B>)
+        -> SphericalGaussianCloud<B>
+    {
+        // Track gradient magnitudes (accumulated over views)
+        let grad_r = model.r.grad().unwrap();
+        let grad_theta = model.theta.grad().unwrap();
+        let grad_phi = model.phi.grad().unwrap();
+
+        let grad_magnitude = (
+            grad_r.powf_scalar(2.0) +
+            grad_theta.powf_scalar(2.0) +
+            grad_phi.powf_scalar(2.0)
+        ).sqrt();
+
+        // Clone high-gradient splats
+        let threshold = 0.0001;
+        let to_clone = grad_magnitude.greater_elem(threshold);
+
+        // Split large splats (angular size > threshold)
+        let max_angular_size = 0.01;  // radians
+        let to_split = model.scale_ang.val().greater_elem(max_angular_size);
+
+        // Prune low-opacity splats
+        let min_opacity = 0.01;
+        let to_keep = model.opacities().greater_elem(min_opacity);
+
+        // Apply densification/pruning operations
+        model.clone_splats(to_clone)
+             .split_splats(to_split)
+             .filter_splats(to_keep)
+    }
+}
+```
+
+**Loss function:**
+
+```rust
+pub fn combined_loss<B: Backend>(
+    rendered: Tensor<B, 3>,  // [H, W, 3]
+    target: Tensor<B, 3>,
+    lambda_dssim: f32,
+) -> Tensor<B, 1> {
+    let l1 = (rendered.clone() - target.clone()).abs().mean();
+    let dssim = dssim_loss(rendered, target);
+
+    l1 * (1.0 - lambda_dssim) + dssim * lambda_dssim
+}
+```
+
+### 5.6 Integration with Jump System
+
+The trained splats are partitioned into HLG cells and loaded dynamically based on camera position:
+
+**Jump-aware cell loading:**
+
+```rust
+fn get_cells_for_jump(camera_pos: Vec3, manifest: &CellManifest) -> Vec<CellID> {
+    // Convert to spherical
+    let r = camera_pos.length();
+    let theta = camera_pos.y.atan2(camera_pos.x);
+    let phi = (camera_pos.z / r).asin();
+
+    // Camera's shell
+    let L_cam = ((r / R_MIN).ln() / 2.0_f32.ln()).floor() as i32;
+
+    let mut cells = Vec::new();
+
+    // Load ±2 shells around camera
+    for dL in -2..=2 {
+        let L = L_cam + dL;
+        let r_shell = R_MIN * 2.0_f32.powi(L);
+
+        // Angular FOV at this shell
+        let load_radius = 10.0;  // AU
+        let angular_fov = (load_radius / r_shell).atan();
+
+        // Query cells within angular cone
+        for cell_entry in &manifest.cells {
+            if cell_entry.id.l == L {
+                let cell_theta = cell_center_theta(cell_entry.id.theta);
+                let cell_phi = cell_center_phi(cell_entry.id.phi);
+
+                let ang_dist = spherical_distance(theta, phi, cell_theta, cell_phi);
+
+                if ang_dist < angular_fov {
+                    cells.push(cell_entry.id);
+                }
+            }
+        }
+    }
+
+    cells
+}
+```
+
+This completes the ML training pipeline: catalog ingestion → spherical splat initialization → multi-scale differentiable rendering → gradient-based optimization → HLG cell export → jump-based streaming.
+
+### 5.6 tch-rs CUDA Training Backend
+
+For production-scale training, Universe provides an alternative backend using **tch-rs** (Rust bindings for LibTorch/PyTorch) with CUDA acceleration. This bypasses Burn's compilation overhead and provides direct access to NVIDIA CUDA kernels.
+
+**Module Structure:**
+```
+crates/universe-train/src/torch_backend/
+├── mod.rs           # Module exports
+├── trainer.rs       # TorchTrainer + train_universe
+├── rasterizer.rs    # Differentiable Gaussian rasterizer
+└── loss.rs          # L1 + D-SSIM loss functions
+```
+
+**TorchTrainer Implementation:**
+
+```rust
+pub struct TorchTrainer {
+    config: TrainConfig,
+    device: Device,  // CPU or CUDA
+}
+
+impl TorchTrainer {
+    pub fn train_cell(&self, cell: &CellData) -> Result<Vec<GaussianSplat>> {
+        // VarStore for optimizer integration
+        let vs = nn::VarStore::new(self.device);
+        let root = vs.root();
+
+        // Initialize learnable parameters
+        let positions = root.var_copy("positions", &pos_tensor);
+        let log_scales = root.var_copy("log_scales", &scale_tensor);
+        let rotations = root.var_copy("rotations", &rot_tensor);
+        let colors = root.var_copy("colors", &color_tensor);
+        let logit_opacities = root.var_copy("logit_opacities", &opacity_tensor);
+
+        // Adam optimizer
+        let mut optimizer = nn::Adam::default().build(&vs, config.learning_rate)?;
+
+        for iter in 0..config.iterations {
+            // Forward pass: differentiable render
+            let rendered = render_gaussians(&positions, &scales, &rotations, ...);
+
+            // Loss: L1 + λ × D-SSIM
+            let loss = combined_loss(&rendered, &gt_tensor, config.lambda_dssim);
+
+            // Backward pass
+            optimizer.zero_grad();
+            loss.backward();
+            optimizer.step();
+        }
+
+        // Export trained splats
+        Ok(model_to_splats(&positions, &log_scales, &rotations, &colors, &logit_opacities))
+    }
+}
+```
+
+**Differentiable Rasterizer Pipeline:**
+
+1. **Quaternion → Rotation Matrix:** Convert [N, 4] quaternions to [N, 3, 3] rotation matrices
+2. **Build 3D Covariance:** Σ = R · S · S^T · R^T where S is diagonal scale matrix
+3. **Project to 2D:** Via Jacobian of perspective projection
+4. **Invert to Conic:** Convert 2D covariance to conic form [a, b, c]
+5. **Evaluate Gaussians:** Per-pixel Mahalanobis distance with 3σ cutoff
+6. **Alpha Blend:** Back-to-front compositing with transmittance tracking
+
+**Camera Setup for Astronomical Scales:**
+
+A critical challenge is configuring camera frustums for positions at ~10^17-10^18 meters:
+
+```rust
+// Compute camera target from actual splat positions, not cell centroid
+let avg_pos: Vec3 = cell.splats.iter()
+    .map(|s| Vec3::new(s.pos[0], s.pos[1], s.pos[2]))
+    .fold(Vec3::ZERO, |acc, p| acc + p) / cell.splats.len() as f32;
+
+// Dynamic near/far based on distance
+let dist = (target - position).length();
+let near = (dist * 0.001).max(1e10);  // At least 1e10 for astronomical scale
+let far = dist * 100.0;
+```
+
+**CUDA Environment Setup:**
+
+```bash
+# Use PyTorch's bundled libtorch
+export LIBTORCH_USE_PYTORCH=1
+
+# Force CUDA library loading at runtime
+export LD_PRELOAD="/path/to/torch/lib/libtorch_cuda.so"
+
+# Training command
+cargo run --release --features torch -p universe-cli -- train-all \
+    --input universe_gaia_poc \
+    --output universe_gaia_poc_trained \
+    --iterations 200 \
+    --backend torch-cuda
+```
+
+**Real Gaia DR3 POC Results:**
+
+| Metric | Value |
+|--------|-------|
+| Stars fetched | 2,000 (Gaia DR3, G < 10) |
+| Cells generated | 1,712 |
+| Total splats | 2,009 |
+| Training device | CUDA (RTX 4000-series) |
+| Loss (initial) | ~0.13 |
+| Loss (final) | ~0.006-0.02 |
+
+### 5.7 Real-Time Rendering Pipeline
 
 **Vertex Shader (WGSL):**
 ```wgsl

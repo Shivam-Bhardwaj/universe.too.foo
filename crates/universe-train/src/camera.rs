@@ -24,14 +24,19 @@ pub struct Camera {
 
 impl Camera {
     pub fn new(position: Vec3, target: Vec3, aspect: f32) -> Self {
+        // Calculate near/far based on distance to target
+        let dist = (target - position).length();
+        let near = (dist * 0.001).max(1e10); // At least 1e10 for astronomical scale
+        let far = dist * 100.0; // Far enough to see beyond target
+
         Self {
             position,
             target,
             up: Vec3::Y,
             fov_y: 60.0_f32.to_radians(),
             aspect,
-            near: 0.1,
-            far: 1e12, // Astronomical distances
+            near,
+            far,
         }
     }
 

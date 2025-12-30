@@ -32,7 +32,7 @@ impl GroundTruthRenderer {
                 Some((s, depth))
             })
             .collect();
-        sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap()); // Back to front
+        sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)); // Back to front (NaN-safe)
 
         for (splat, _depth) in sorted {
             let pos = Vec3::new(splat.pos[0], splat.pos[1], splat.pos[2]);
