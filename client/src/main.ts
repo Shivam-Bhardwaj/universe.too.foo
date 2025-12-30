@@ -831,6 +831,83 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         dirtyRebuild = true;
     });
 
+    // -------------------------------------------------------------------------
+    // Search/Find UI
+    // -------------------------------------------------------------------------
+    const searchInput = document.getElementById('search-input') as HTMLInputElement | null;
+    const searchResults = document.getElementById('search-results');
+    const searchCount = document.getElementById('search-count');
+
+    const updateSearchResults = () => {
+        if (!searchInput || !searchResults || !landmarks) return;
+
+        const query = searchInput.value.trim().toLowerCase();
+
+        if (query.length === 0) {
+            searchResults.innerHTML = '';
+            if (searchCount) searchCount.textContent = 'Type to search...';
+            return;
+        }
+
+        const results = landmarks.search(query);
+
+        if (searchCount) {
+            searchCount.textContent = `${results.length} result${results.length === 1 ? '' : 's'}`;
+        }
+
+        // Show top 10 results
+        const top = results.slice(0, 10);
+        searchResults.innerHTML = top
+            .map((lm) => {
+                const distM = Math.sqrt(
+                    (lm.pos_meters.x - camera.position.x) ** 2 +
+                        (lm.pos_meters.y - camera.position.y) ** 2 +
+                        (lm.pos_meters.z - camera.position.z) ** 2
+                );
+                const distStr = formatDistance(distM);
+
+                return `
+                <div class="search-result-item" data-landmark-id="${lm.id}">
+                    <div>
+                        <span class="search-result-name">${lm.name}</span>
+                        <span class="search-result-type">${lm.kind}</span>
+                    </div>
+                    <div class="search-result-dist">${distStr} away</div>
+                </div>
+            `;
+            })
+            .join('');
+
+        // Wire up click handlers for results
+        searchResults.querySelectorAll('.search-result-item').forEach((el) => {
+            el.addEventListener('click', () => {
+                const landmarkId = el.getAttribute('data-landmark-id');
+                if (!landmarkId) return;
+
+                const landmark = landmarks.get(landmarkId);
+                if (!landmark) return;
+
+                // Jump to landmark
+                flightControls.startJump(
+                    landmark.pos_meters,
+                    landmark.name,
+                    landmark.radius_hint || 1e9
+                );
+
+                // Clear search
+                searchInput.value = '';
+                updateSearchResults();
+            });
+        });
+    };
+
+    searchInput?.addEventListener('input', updateSearchResults);
+
+    // Initialize search count
+    if (searchCount) {
+        searchCount.textContent = 'Type to search...';
+    }
+
     // Minimap orb (DOM/canvas)
     const navOrbEl = document.getElementById('nav-orb') as HTMLDivElement | null;
     const navOrbCanvas = document.getElementById('nav-orb-canvas') as HTMLCanvasElement | null;
