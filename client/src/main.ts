@@ -10,6 +10,7 @@ import { LandmarksManager } from './landmarks';
 import { determineRegime, ScaleRegime } from './scale_system';
 import { ClientTimeController, J2000_JD } from './time_controller';
 import { estimateStellarVelocity, propagateStarFull } from './stellar_motion';
+import { generateOortCloudViewBiased, type ProceduralObject } from './procedural_oort';
 
 type Dom = {
     video: HTMLCanvasElement;
@@ -1755,7 +1756,28 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
             if (starCount >= targetSplats) break;
         }
 
-        const totalInstances = starCount + solarSplats;
+        // Generate Oort Cloud if camera is far enough out (> 100 AU)
+        const cameraDist = Math.sqrt(camera.position.x ** 2 + camera.position.y ** 2 + camera.position.z ** 2);
+        const OORT_ACTIVATION_DIST = 100 * 1.496e11;  // 100 AU
+        let oortObjects: ProceduralObject[] = [];
+
+        if (cameraDist > OORT_ACTIVATION_DIST) {
+            // Generate view-biased Oort Cloud objects
+            const oortCount = Math.min(500, Math.floor(cameraDist / 1e12));  // More objects as you zoom out
+            oortObjects = generateOortCloudViewBiased(
+                {
+                    innerRadiusAU: 2000,
+                    outerRadiusAU: 100000,
+                    seed: 42,  // Fixed seed for consistency
+                    objectCount: oortCount,
+                },
+                camera.position,
+                camera.forward(),
+                Math.PI / 3  // 60 degree FOV
+            );
+        }
+
+        const totalInstances = starCount + solarSplats + oortObjects.length;
         const worldPos = new Float64Array(totalInstances * 3);
         const gpu = new Float32Array(totalInstances * 16);
 
@@ -1830,6 +1852,43 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
 
         // Fill solar bodies after stars
         fillSolar(worldPos, gpu, starCount);
+
+        // Fill Oort Cloud objects after solar bodies
+        const oortBase = starCount + solarSplats;
+        for (let i = 0; i < oortObjects.length; i++) {
+            const obj = oortObjects[i];
+            const idx = oortBase + i;
+
+            const dst3 = idx * 3;
+            worldPos[dst3 + 0] = obj.position.x;
+            worldPos[dst3 + 1] = obj.position.y;
+            worldPos[dst3 + 2] = obj.position.z;
+
+            const dst16 = idx * 16;
+            // Position (relative to floating origin)
+            gpu[dst16 + 0] = (obj.position.x - camera.origin.x) as number;
+            gpu[dst16 + 1] = (obj.position.y - camera.origin.y) as number;
+            gpu[dst16 + 2] = (obj.position.z - camera.origin.z) as number;
+            gpu[dst16 + 3] = 0;
+
+            // Scale (small icy bodies)
+            gpu[dst16 + 4] = obj.radius;
+            gpu[dst16 + 5] = obj.radius;
+            gpu[dst16 + 6] = obj.radius;
+            gpu[dst16 + 7] = 0;
+
+            // Rotation (identity quaternion)
+            gpu[dst16 + 8] = 0;
+            gpu[dst16 + 9] = 0;
+            gpu[dst16 + 10] = 0;
+            gpu[dst16 + 11] = 1;
+
+            // Color (icy white/blue)
+            gpu[dst16 + 12] = obj.color[0];
+            gpu[dst16 + 13] = obj.color[1];
+            gpu[dst16 + 14] = obj.color[2];
+            gpu[dst16 + 15] = obj.brightness;
+        }
 
         finalWorldPos = worldPos;
         finalGpuSplats = gpu;
