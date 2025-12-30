@@ -14,6 +14,7 @@ interface NavTarget {
 
 const NAV_TARGETS: Record<string, NavTarget> = {
     'Digit0': { name: 'Home', pos: { x: 0, y: 0, z: 1.5e11 } },
+    'KeyH': { name: 'Sun', pos: { x: 0, y: 0, z: 0 }, radius_m: 6.96e8 },  // H key - jump to Sun
     // Approximate semi-major-axis positions (match dataset-mode overlay in main.ts).
     'Digit1': { name: 'Earth', pos: { x: AU, y: 0, z: 0 }, radius_m: 6.371e6 },
     'Digit2': { name: 'Mars', pos: { x: 1.52 * AU, y: 0, z: 0 }, radius_m: 3.3895e6 },

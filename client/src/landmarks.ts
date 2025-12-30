@@ -3,7 +3,7 @@
  * Provides built-in POIs and optional ML-generated landmarks.
  */
 
-export type LandmarkKind = 'star' | 'planet' | 'galaxy' | 'cluster' | 'nebula' | 'region' | 'other';
+export type LandmarkKind = 'star' | 'planet' | 'dwarf-planet' | 'galaxy' | 'cluster' | 'nebula' | 'region' | 'spacecraft' | 'other';
 export type LandmarkSource = 'builtin' | 'ml' | 'user';
 
 export interface Landmark {
@@ -240,6 +240,274 @@ export const BUILTIN_LANDMARKS: Landmark[] = [
         radius_hint: 3.7e16,
         source: 'builtin',
         description: 'Open star cluster (444 ly)',
+    },
+
+    // -------------------------------------------------------------------------
+    // Spacecraft - Human exploration beyond Earth
+    // -------------------------------------------------------------------------
+    // Note: These are approximate 2025 positions. Future: use time-dependent trajectories.
+
+    {
+        id: 'voyager-1',
+        name: 'Voyager 1',
+        kind: 'spacecraft',
+        // ~164 AU from Sun (2025), heading toward interstellar space
+        // Approximate direction: RA 257°, Dec +12°
+        pos_meters: { x: 1.7e13, y: 5.2e12, z: 2.9e12 },
+        radius_hint: 10,  // ~10 meter spacecraft
+        source: 'builtin',
+        description: 'Farthest human-made object (~164 AU, launched 1977)',
+    },
+    {
+        id: 'voyager-2',
+        name: 'Voyager 2',
+        kind: 'spacecraft',
+        // ~137 AU from Sun (2025), different trajectory than V1
+        // Approximate direction: RA 338°, Dec -48°
+        pos_meters: { x: 1.4e13, y: -1.1e13, z: -8.3e12 },
+        radius_hint: 10,
+        source: 'builtin',
+        description: 'Second farthest spacecraft (~137 AU, launched 1977)',
+    },
+    {
+        id: 'new-horizons',
+        name: 'New Horizons',
+        kind: 'spacecraft',
+        // ~58 AU from Sun (2025), post-Pluto mission
+        // Heading ~RA 270°, Dec -20°
+        pos_meters: { x: -8.7e12, y: -2.0e12, z: -3.0e12 },
+        radius_hint: 5,
+        source: 'builtin',
+        description: 'Pluto flyby mission (~58 AU, launched 2006)',
+    },
+    {
+        id: 'jwst',
+        name: 'James Webb Space Telescope',
+        kind: 'spacecraft',
+        // At Sun-Earth L2 point (~1.5 million km from Earth)
+        // Position: ~1.01 AU from Sun on anti-sunward side
+        pos_meters: { x: 1.511e11, y: 0, z: 0 },
+        radius_hint: 10,
+        source: 'builtin',
+        description: 'Infrared space telescope at L2 (~1.01 AU, launched 2021)',
+    },
+    {
+        id: 'parker-solar-probe',
+        name: 'Parker Solar Probe',
+        kind: 'spacecraft',
+        // Highly elliptical orbit: 0.046 AU (perihelion) to 0.73 AU (aphelion)
+        // Approximate position at mid-orbit (~0.4 AU)
+        pos_meters: { x: 6.0e10, y: 0, z: 0 },
+        radius_hint: 3,
+        source: 'builtin',
+        description: 'Closest approach to Sun mission (0.046-0.73 AU, launched 2018)',
+    },
+
+    // -------------------------------------------------------------------------
+    // Kuiper Belt & Trans-Neptunian Objects
+    // -------------------------------------------------------------------------
+    // Dwarf planets and large KBOs beyond Neptune (30-100 AU)
+
+    {
+        id: 'pluto',
+        name: 'Pluto',
+        kind: 'dwarf-planet',
+        // Semi-major axis: 39.5 AU, eccentric orbit (e=0.25)
+        // Approximate position at mean distance
+        pos_meters: { x: 5.9e12, y: 0, z: 0 },
+        radius_hint: 1.188e6,  // 1,188 km
+        source: 'builtin',
+        description: 'Dwarf planet, largest known KBO (39.5 AU)',
+    },
+    {
+        id: 'eris',
+        name: 'Eris',
+        kind: 'dwarf-planet',
+        // Semi-major axis: 67.7 AU, highly eccentric (e=0.44)
+        // Currently ~96 AU from Sun (aphelion region)
+        pos_meters: { x: 1.44e13, y: 0, z: 0 },
+        radius_hint: 1.163e6,  // 1,163 km
+        source: 'builtin',
+        description: 'Dwarf planet, most massive known KBO (67.7 AU avg, currently ~96 AU)',
+    },
+    {
+        id: 'makemake',
+        name: 'Makemake',
+        kind: 'dwarf-planet',
+        // Semi-major axis: 45.8 AU
+        pos_meters: { x: 6.85e12, y: 0, z: 0 },
+        radius_hint: 7.15e5,  // 715 km
+        source: 'builtin',
+        description: 'Dwarf planet in classical Kuiper Belt (45.8 AU)',
+    },
+    {
+        id: 'haumea',
+        name: 'Haumea',
+        kind: 'dwarf-planet',
+        // Semi-major axis: 43.3 AU
+        pos_meters: { x: 6.48e12, y: 0, z: 0 },
+        radius_hint: 8.16e5,  // 816 km (mean radius, actually ellipsoidal)
+        source: 'builtin',
+        description: 'Dwarf planet, elongated shape, rapid rotation (43.3 AU)',
+    },
+    {
+        id: 'sedna',
+        name: 'Sedna',
+        kind: 'dwarf-planet',
+        // Extremely eccentric: 76 AU (perihelion) to 937 AU (aphelion)
+        // Currently ~85 AU (near perihelion)
+        pos_meters: { x: 1.27e13, y: 0, z: 0 },
+        radius_hint: 5e5,  // ~500 km estimated
+        source: 'builtin',
+        description: 'Extreme trans-Neptunian object, detached orbit (76-937 AU)',
+    },
+    {
+        id: 'gonggong',
+        name: 'Gonggong',
+        kind: 'dwarf-planet',
+        // Semi-major axis: 67.4 AU
+        pos_meters: { x: 1.01e13, y: 0, z: 0 },
+        radius_hint: 6.15e5,  // ~615 km
+        source: 'builtin',
+        description: 'Dwarf planet candidate in scattered disk (67.4 AU)',
+    },
+    {
+        id: 'quaoar',
+        name: 'Quaoar',
+        kind: 'dwarf-planet',
+        // Semi-major axis: 43.4 AU
+        pos_meters: { x: 6.49e12, y: 0, z: 0 },
+        radius_hint: 5.55e5,  // 555 km
+        source: 'builtin',
+        description: 'Classical KBO with ring system (43.4 AU)',
+    },
+
+    // -------------------------------------------------------------------------
+    // Messier Catalog - Famous Deep Sky Objects
+    // -------------------------------------------------------------------------
+    // Complete catalog: 110 objects (nebulae, clusters, galaxies)
+    // Showing key objects here; full catalog can be generated programmatically
+
+    // M31 (already exists as "Andromeda" - skip duplicate)
+    // M42 (already exists as "Orion Nebula" - skip duplicate)
+    // M45 (already exists as "Pleiades" - skip duplicate)
+
+    {
+        id: 'm13',
+        name: 'Great Hercules Cluster (M13)',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(250.42, 36.46, 7400),  // 7.4 kpc
+        radius_hint: 2.5e17,  // ~80 ly diameter
+        source: 'builtin',
+        description: 'Globular cluster in Hercules (25,100 ly)',
+    },
+    {
+        id: 'm51',
+        name: 'Whirlpool Galaxy (M51)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(202.47, 47.20, 8600000),  // 8.6 Mpc
+        radius_hint: 2.3e21,  // ~75,000 ly diameter
+        source: 'builtin',
+        description: 'Grand-design spiral galaxy (28 million ly)',
+    },
+    {
+        id: 'm57',
+        name: 'Ring Nebula (M57)',
+        kind: 'nebula',
+        pos_meters: radecToEcliptic(283.40, 33.03, 710),  // 710 pc
+        radius_hint: 3e15,  // ~1 ly diameter
+        source: 'builtin',
+        description: 'Planetary nebula in Lyra (2,300 ly)',
+    },
+    {
+        id: 'm81',
+        name: 'Bodes Galaxy (M81)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(148.89, 69.07, 3630000),  // 3.63 Mpc
+        radius_hint: 2.7e21,  // ~90,000 ly diameter
+        source: 'builtin',
+        description: 'Spiral galaxy in Ursa Major (12 million ly)',
+    },
+    {
+        id: 'm87',
+        name: 'Virgo A (M87)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(187.71, 12.39, 16500000),  // 16.5 Mpc
+        radius_hint: 3.7e21,  // ~120,000 ly diameter
+        source: 'builtin',
+        description: 'Giant elliptical galaxy with supermassive black hole (53 million ly)',
+    },
+    {
+        id: 'm104',
+        name: 'Sombrero Galaxy (M104)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(189.99, -11.62, 9550000),  // 9.55 Mpc
+        radius_hint: 1.5e21,  // ~50,000 ly diameter
+        source: 'builtin',
+        description: 'Unbarred spiral galaxy in Virgo (31 million ly)',
+    },
+    {
+        id: 'm8',
+        name: 'Lagoon Nebula (M8)',
+        kind: 'nebula',
+        pos_meters: radecToEcliptic(270.92, -24.38, 1250),  // 1.25 kpc
+        radius_hint: 1.7e17,  // ~55 ly x 20 ly
+        source: 'builtin',
+        description: 'Star-forming emission nebula in Sagittarius (4,100 ly)',
+    },
+    {
+        id: 'm20',
+        name: 'Trifid Nebula (M20)',
+        kind: 'nebula',
+        pos_meters: radecToEcliptic(270.31, -23.03, 1680),  // 1.68 kpc
+        radius_hint: 8e16,  // ~28 ly diameter
+        source: 'builtin',
+        description: 'Emission/reflection nebula in Sagittarius (5,500 ly)',
+    },
+    {
+        id: 'm27',
+        name: 'Dumbbell Nebula (M27)',
+        kind: 'nebula',
+        pos_meters: radecToEcliptic(299.90, 22.72, 390),  // 390 pc
+        radius_hint: 7e15,  // ~2.4 ly diameter
+        source: 'builtin',
+        description: 'Planetary nebula in Vulpecula (1,270 ly)',
+    },
+    {
+        id: 'm33',
+        name: 'Triangulum Galaxy (M33)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(23.46, 30.66, 870000),  // 870 kpc
+        radius_hint: 1.8e21,  // ~60,000 ly diameter
+        source: 'builtin',
+        description: 'Spiral galaxy, third-largest in Local Group (2.8 million ly)',
+    },
+    {
+        id: 'm44',
+        name: 'Beehive Cluster (M44)',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(130.05, 19.98, 187),  // 187 pc
+        radius_hint: 7e15,  // ~22 ly diameter
+        source: 'builtin',
+        description: 'Open cluster in Cancer (610 ly)',
+    },
+    {
+        id: 'm64',
+        name: 'Black Eye Galaxy (M64)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(194.18, 21.68, 5200000),  // 5.2 Mpc
+        radius_hint: 1.6e21,  // ~52,000 ly diameter
+        source: 'builtin',
+        description: 'Spiral galaxy with dark dust lane (17 million ly)',
+    },
+    {
+        id: 'm101',
+        name: 'Pinwheel Galaxy (M101)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(210.80, 54.35, 6400000),  // 6.4 Mpc
+        radius_hint: 5.2e21,  // ~170,000 ly diameter (very large)
+        source: 'builtin',
+        description: 'Face-on spiral galaxy in Ursa Major (21 million ly)',
     },
 ];
 

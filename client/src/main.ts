@@ -7,6 +7,7 @@ import { WebGpuSplatRenderer } from './webgpu_splats';
 import { WebGlSplatRenderer } from './webgl_splats';
 import { detectRuntime, getRuntimeErrorMessage } from './runtime';
 import { LandmarksManager } from './landmarks';
+import { determineRegime, ScaleRegime } from './scale_system';
 
 type Dom = {
     video: HTMLCanvasElement;
@@ -81,6 +82,36 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
 
     // HUD
     const hud = new HUD();
+
+    // Debug overlay (query-param gated): `?debugOverlay=1` (or `?debug=1`)
+    const debugOverlayEnabled =
+        params.get('debugOverlay') === '1' ||
+        params.get('debugOverlay')?.toLowerCase() === 'true' ||
+        params.get('debug') === '1' ||
+        params.get('debug')?.toLowerCase() === 'true';
+
+    const debugOverlayEl: HTMLDivElement | null = debugOverlayEnabled
+        ? (() => {
+              const el = document.createElement('div');
+              el.id = 'debug-overlay';
+              el.style.position = 'absolute';
+              el.style.left = '20px';
+              el.style.bottom = '20px';
+              el.style.padding = '10px 12px';
+              el.style.borderRadius = '10px';
+              el.style.border = '1px solid rgba(0, 170, 255, 0.25)';
+              el.style.background = 'rgba(0, 0, 0, 0.55)';
+              el.style.color = 'rgba(207, 239, 255, 0.95)';
+              el.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace';
+              el.style.fontSize = '12px';
+              el.style.lineHeight = '1.35';
+              el.style.pointerEvents = 'none';
+              el.style.zIndex = '90';
+              el.textContent = 'debug overlay…';
+              document.getElementById('overlay')?.appendChild(el);
+              return el;
+          })()
+        : null;
 
     // Canvas sizing
     const dpr = window.devicePixelRatio || 1;
@@ -701,6 +732,13 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         { name: 'Saturn', pos: [9.5 * AU_M, 0, 0], radius_m: 5.8232e7, color: [0.92, 0.86, 0.68], opacity: 1.0 },
         { name: 'Uranus', pos: [19.2 * AU_M, 0, 0], radius_m: 2.5362e7, color: [0.62, 0.86, 0.92], opacity: 1.0 },
         { name: 'Neptune', pos: [30.0 * AU_M, 0, 0], radius_m: 2.4622e7, color: [0.34, 0.55, 0.98], opacity: 1.0 },
+
+        // Spacecraft (scaled up for visibility - actual size ~10m)
+        { name: 'Voyager 1', pos: [1.7e13, 5.2e12, 2.9e12], radius_m: 1e7, color: [0.9, 0.9, 1.0], opacity: 0.9 },
+        { name: 'Voyager 2', pos: [1.4e13, -1.1e13, -8.3e12], radius_m: 1e7, color: [0.9, 0.9, 1.0], opacity: 0.9 },
+        { name: 'New Horizons', pos: [-8.7e12, -2.0e12, -3.0e12], radius_m: 1e7, color: [1.0, 1.0, 0.9], opacity: 0.85 },
+        { name: 'JWST', pos: [1.511e11, 0, 0], radius_m: 1e6, color: [1.0, 0.85, 0.6], opacity: 0.8 },
+        { name: 'Parker', pos: [6.0e10, 0, 0], radius_m: 5e5, color: [1.0, 0.5, 0.2], opacity: 0.75 },
     ];
 
     const solarSplats = solarBodies.length;
@@ -710,6 +748,7 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     // -------------------------------------------------------------------------
     // Navigation UI: compass + labels for a few anchor bodies
     // -------------------------------------------------------------------------
+    const locationContextEl = document.getElementById('location-context');
     const navDistSunEl = document.getElementById('dist-sun');
     const navSpeedEl = document.getElementById('speed');
     const navAnglesEl = document.getElementById('angles');
@@ -717,7 +756,7 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     const navTargetEl = document.getElementById('target');
 
     const labelsRoot = document.getElementById('labels') as HTMLDivElement | null;
-    const labelNames = new Set(['Sun', 'Earth', 'Mars']);
+    const labelNames = new Set(['Sun', 'Earth', 'Mars', 'Voyager 1', 'JWST']);
     const labelEls: Array<{ body: SolarBody; el: HTMLDivElement; distEl: HTMLSpanElement }> = [];
 
     if (labelsRoot) {
@@ -1118,6 +1157,38 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
                 camera.position.z * camera.position.z,
         );
         if (navDistSunEl) navDistSunEl.textContent = `${(distSunM / AU_M).toFixed(2)} AU`;
+
+        // Update location breadcrumb
+        if (locationContextEl) {
+            const regime = determineRegime(distSunM);
+            const distFormatted = formatDistance(distSunM);
+
+            // Find nearest landmark
+            const nearest = landmarks?.findNearest(camera.position, 1)[0];
+            const nearestName = nearest ? nearest.landmark.name : 'Unknown';
+            const nearestDist = nearest ? formatDistance(nearest.distance) : '';
+
+            let breadcrumb = '';
+            switch (regime) {
+                case ScaleRegime.Planetary:
+                case ScaleRegime.SolarSystem:
+                    breadcrumb = `<span class="location-primary">${nearestName}</span>`;
+                    if (nearest && nearest.distance > 0) {
+                        breadcrumb += ` <span class="location-sep">•</span> ${nearestDist}`;
+                    }
+                    break;
+                case ScaleRegime.Interstellar:
+                    breadcrumb = `<span class="location-primary">Local Stellar Neighborhood</span> <span class="location-sep">•</span> ${distFormatted} from Sun`;
+                    break;
+                case ScaleRegime.Galactic:
+                    breadcrumb = `<span class="location-primary">Milky Way</span> <span class="location-sep">•</span> ${distFormatted} from Sun`;
+                    break;
+                case ScaleRegime.Intergalactic:
+                    breadcrumb = `<span class="location-primary">Local Group</span> <span class="location-sep">•</span> ${distFormatted} from Milky Way`;
+                    break;
+            }
+            locationContextEl.innerHTML = breadcrumb;
+        }
 
         const speedAuPerSec = camera.speed / AU_M;
         if (navSpeedEl) {
@@ -1617,10 +1688,19 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         lastRebuildMs = nowMs;
     };
 
-    // Use the Rust/WASM loader for cell fetch + LZ4 decompress + parse (single-path default).
-    // Use `?engine=js` only as a dev/debug escape hatch.
-    const engineParam = (params.get('engine') ?? 'wasm').toLowerCase();
-    const useWasmCells = engineParam !== 'js';
+    // Use the Rust/WASM loader for cell fetch + LZ4 decompress + parse (default).
+    //
+    // Query param override:
+    // - `?engine=wasm` forces WASM (hard-fails if it can't init)
+    // - `?engine=ts` (or `?engine=js`) forces the TypeScript loader
+    // - `?engine=auto` (default) tries WASM and falls back to TS if init fails
+    const engineParamRaw = (params.get('engine') ?? 'auto').toLowerCase();
+    const engineParam = engineParamRaw === '' ? 'auto' : engineParamRaw;
+    const wantsTsCells = engineParam === 'ts' || engineParam === 'js';
+    const wantsWasmCells = engineParam === 'wasm';
+    const engineAuto = engineParam === 'auto';
+
+    let useWasmCells = !wantsTsCells;
     let wasmFetchCell: ((baseUrl: string, fileName: string) => Promise<any>) | null = null;
     let wasmParseCell: ((bytes: Uint8Array) => any) | null = null;
 
@@ -1640,17 +1720,36 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
             console.log('[DATASET] Using WASM cell loader');
         } catch (e) {
             console.error('[DATASET] Failed to init WASM loader', e);
-            loading.classList.remove('hidden');
+
+            if (wantsWasmCells) {
+                // Forced WASM: show a clear error and fail fast.
+                loading.classList.remove('hidden');
+                loading.innerHTML = `
+                    <div style="color: #f00">WASM Engine Failed</div>
+                    <div style="font-size: 14px; margin-top: 10px; opacity: 0.7">
+                        Failed to initialize <code>universe-engine.wasm</code>.
+                    </div>
+                    <div style="font-size: 12px; margin-top: 20px; opacity: 0.5">
+                        Try rebuilding with <code>./wasm-build.sh</code> and redeploying.
+                    </div>
+                `;
+                return false;
+            }
+
+            // Auto: fall back gracefully.
+            useWasmCells = false;
+            wasmFetchCell = null;
+            wasmParseCell = null;
+            console.warn('[DATASET] Falling back to TypeScript cell loader (WASM init failed).', { engineParam, engineAuto });
+
+            // Keep going; the TS loader path below will be used.
             loading.innerHTML = `
-                <div style="color: #f00">WASM Engine Failed</div>
-                <div style="font-size: 14px; margin-top: 10px; opacity: 0.7">
-                    Failed to initialize <code>universe-engine.wasm</code>.
-                </div>
-                <div style="font-size: 12px; margin-top: 20px; opacity: 0.5">
-                    Rebuild it with <code>./wasm-build.sh</code> and rebuild the client.
+                <div class="spinner"></div>
+                <div>Loading dataset…</div>
+                <div style="font-size: 12px; opacity: 0.7; margin-top: 8px;">
+                    WASM unavailable; using TypeScript loader
                 </div>
             `;
-            return false;
         }
     }
 
@@ -1674,10 +1773,15 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
             // use HTTP Range requests per cell to avoid pulling GBs into memory.
             const MAX_INLINE_PACK = 64 * 1024 * 1024; // 64 MiB
             if (pack.total_size_bytes <= MAX_INLINE_PACK) {
+                console.log('[DATASET] Downloading inline packfile...');
                 const res = await fetch(`/universe/${pack.pack_file}`, { cache: 'no-cache' });
+                console.log('[DATASET] Pack fetch response:', res.status, res.ok);
                 if (res.ok) {
                     const ab = await res.arrayBuffer();
                     packBuf = new Uint8Array(ab);
+                    console.log('[DATASET] Pack loaded inline:', packBuf.byteLength, 'bytes');
+                } else {
+                    console.error('[DATASET] Pack fetch failed:', res.status, res.statusText);
                 }
             } else {
                 console.log('[DATASET] Packfile is large; using HTTP Range requests:', pack.pack_file);
@@ -1744,6 +1848,7 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     };
 
     const loadCellFile = async (file: string): Promise<LoadedCell> => {
+        console.log('[CELL] Loading:', file, { packBuf: !!packBuf, packMap: !!packMap, wasmParseCell: !!wasmParseCell });
         let centroidX = 0;
         let centroidY = 0;
         let centroidZ = 0;
@@ -1819,10 +1924,13 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     };
 
     // Start workers
+    console.log('[WORKERS] Starting', concurrency, 'workers');
     for (let i = 0; i < concurrency; i++) {
         void (async () => {
+            console.log(`[WORKER ${i}] Started`);
             while (true) {
                 const file = await nextFile();
+                console.log(`[WORKER ${i}] Got file:`, file);
                 try {
                     const cell = await loadCellFile(file);
                     // Avoid growing unbounded due to stale in-flight loads.
@@ -1868,8 +1976,11 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
 
     // Prime desired set and start background loads.
     desiredEntries = computeTargetEntries();
+    console.log('[INIT] Computed target entries:', desiredEntries.length);
     desiredSet = new Set(desiredEntries.map((e) => e.file_name));
+    console.log('[INIT] Enqueueing', desiredEntries.length, 'cells');
     for (const e of desiredEntries) enqueue(e.file_name);
+    console.log('[INIT] Queue size:', queue.length, 'Waiters:', waiters.length, 'Inflight:', inflight.size);
     dirtyRebuild = true;
 
     // Render loop
@@ -1889,6 +2000,32 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         fps,
         clients: 1,
     });
+
+    let lastDebugUpdateMs = 0;
+    const updateDebugOverlay = (now: number, dt: number) => {
+        if (!debugOverlayEl) return;
+        // Throttle DOM updates a bit to avoid layout churn.
+        if (now - lastDebugUpdateMs < 250) return;
+        lastDebugUpdateMs = now;
+
+        let loadedBytes = 0;
+        for (const c of loaded.values()) loadedBytes += c.bytes;
+        const loadedCells = loaded.size;
+        const desiredCells = desiredEntries.length;
+        const inflightCells = inflight.size;
+
+        const packMode =
+            packFile && packBuf ? `inline(${(packBuf.byteLength / (1024 * 1024)).toFixed(1)}MiB)` : packFile ? 'range' : 'none';
+
+        debugOverlayEl.innerHTML = [
+            `<div><b>renderer</b>: ${rendererKind}</div>`,
+            `<div><b>cells_engine</b>: ${useWasmCells ? 'wasm' : 'ts'} (${engineParam})</div>`,
+            `<div><b>pack</b>: ${packMode}</div>`,
+            `<div><b>cells</b>: loaded ${loadedCells} / target ${desiredCells} (inflight ${inflightCells})</div>`,
+            `<div><b>cache</b>: ${(loadedBytes / (1024 * 1024)).toFixed(1)} MiB</div>`,
+            `<div><b>fps</b>: ${fpsSmoothed.toFixed(1)} · <b>dt</b>: ${(dt * 1000).toFixed(1)} ms</div>`,
+        ].join('');
+    };
 
     function frame(now: number) {
         const dt = Math.min(0.05, (now - last) / 1000);
@@ -1977,6 +2114,7 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         const fpsInst = dt > 0 ? 1 / dt : 0;
         fpsSmoothed = fpsSmoothed ? fpsSmoothed * 0.9 + fpsInst * 0.1 : fpsInst;
         hud.update(makeHudState(fpsSmoothed));
+        updateDebugOverlay(now, dt);
 
         requestAnimationFrame(frame);
     }

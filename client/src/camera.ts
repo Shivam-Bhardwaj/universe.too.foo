@@ -1,3 +1,10 @@
+import {
+    determineRegime,
+    computeSpeed,
+    computeRegimeBoundaryBlend,
+    REGIME_SPEEDS,
+} from './scale_system';
+
 export interface Vec3d {
     x: number;
     y: number;
@@ -181,19 +188,44 @@ export class LocalCamera {
         const my = f.y * forward + r.y * right + u.y * up;
         const mz = f.z * forward + r.z * right + u.z * up;
 
-        this.position.x += mx * this.speed * dt;
-        this.position.y += my * this.speed * dt;
-        this.position.z += mz * this.speed * dt;
+        // Proposed new position
+        const newX = this.position.x + mx * this.speed * dt;
+        const newY = this.position.y + my * this.speed * dt;
+        const newZ = this.position.z + mz * this.speed * dt;
+        const newDist = Math.sqrt(newX * newX + newY * newY + newZ * newZ);
+
+        // Enforce distance limits (min 1 km, max based on heliosphere constraint)
+        const MIN_DISTANCE = 1e3;  // 1 km minimum
+        const MAX_DISTANCE = 1e25; // ~300 Mpc maximum (computed from heliosphere constraint)
+
+        if (newDist < MIN_DISTANCE || newDist > MAX_DISTANCE) {
+            // Clamp to limit sphere
+            const targetDist = clamp(newDist, MIN_DISTANCE, MAX_DISTANCE);
+            const scale = targetDist / Math.max(1e-10, newDist);
+            this.position.x = newX * scale;
+            this.position.y = newY * scale;
+            this.position.z = newZ * scale;
+        } else {
+            this.position.x = newX;
+            this.position.y = newY;
+            this.position.z = newZ;
+        }
     }
 
     /**
-     * Update the time-based movement gain.
+     * Update the time-based movement gain with regime-aware speed scaling.
      *
-     * - Hold any movement input (WASD / Space / Shift) for ~`accel_time_s` to reach max speed.
-     * - At max speed, the camera traverses the current distance-to-origin scale in ~`travel_time_s`.
+     * - Hold any movement input (WASD / Space / Shift) to ramp up speed
+     * - Speed automatically scales based on distance from origin (scale regime)
+     * - Smooth transitions across regime boundaries
      */
     updateGain(dt: number, moving: boolean) {
-        const a = Math.max(0.001, this.accel_time_s);
+        const dist = vec3Len(this.position);
+        const regime = determineRegime(dist);
+        const config = REGIME_SPEEDS[regime];
+
+        // Ramp time varies by regime
+        const a = Math.max(0.001, config.ramp_time_s);
         if (moving) {
             this.speed_ramp = clamp(this.speed_ramp + dt / a, 0.0, 1.0);
         } else {
@@ -201,17 +233,17 @@ export class LocalCamera {
             this.speed_ramp = 0.0;
         }
 
-        const dist = vec3Len(this.position);
-        const scale_m = Math.max(1.0, dist);
+        // Compute speed for current regime
+        let regimeSpeed = computeSpeed(regime, this.speed_ramp);
 
-        // If we ramp to max over `a` seconds, average speed over a `travel_time_s`
-        // interval is reduced by roughly 0.5*a. Compensate so you still traverse
-        // ~scale_m in ~travel_time_s while ramping.
-        const t = Math.max(1.0, this.travel_time_s);
-        const effective = Math.max(1.0, t - 0.5 * a);
+        // Apply smooth blending near regime boundaries
+        const boundaryBlend = computeRegimeBoundaryBlend(dist);
+        this.speed = regimeSpeed * boundaryBlend;
 
-        const v_max = clamp(scale_m / effective, 1e3, 1e18);
-        this.speed = v_max * this.speed_ramp;
+        // Respect manual travel_time adjustment (Q/E keys) as speed multiplier
+        // Default travel_time_s is 60s; Q increases it (slower), E decreases it (faster)
+        const travelTimeFactor = 60.0 / Math.max(5.0, this.travel_time_s);
+        this.speed *= travelTimeFactor;
     }
 
     adjustTravelTime(deltaSeconds: number) {

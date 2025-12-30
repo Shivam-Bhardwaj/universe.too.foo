@@ -126,6 +126,26 @@
             color: #fff;
         }
 
+        #hud-breadcrumb {
+            font-size: 12px;
+            margin-bottom: 12px;
+            padding: 6px 10px;
+            background: rgba(0, 170, 255, 0.1);
+            border-left: 3px solid #0af;
+            border-radius: 4px;
+            color: #aaa;
+        }
+
+        #hud-breadcrumb .location-primary {
+            color: #0af;
+            font-weight: 600;
+        }
+
+        #hud-breadcrumb .location-sep {
+            margin: 0 6px;
+            color: #555;
+        }
+
         #hud-info {
             opacity: 0.9;
             line-height: 1.8;
@@ -700,6 +720,9 @@
 
             <div id="hud">
                 <div id="hud-time">--</div>
+                <div id="hud-breadcrumb">
+                    <span id="location-context">--</span>
+                </div>
                 <div id="hud-info">
                     <div><b>Rate:</b> <span id="time-rate">--</span></div>
                     <div><b>Position:</b> <span id="position">--</span></div>

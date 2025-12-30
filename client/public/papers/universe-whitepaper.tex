@@ -40,11 +40,12 @@
 \title{Universe: Real-Time Astronomical Visualization via\\Gaussian Splatting and WebRTC Streaming}
 
 \author{
+    Shivam Bhardwaj\\
     HELIOS Project\\
     \texttt{https://github.com/helios-project/universe}
 }
 
-\date{December 2024}
+\date{December 2025}
 
 \begin{document}
 
@@ -351,11 +352,62 @@ Bandwidth & 10--15 Mbps \\
 \end{tabular}
 \end{table}
 
+\section{Future Work: Interactive Planetarium}
+
+To transform Universe into a comprehensive heliocentric planetarium, we have designed and begun implementing a 6-phase roadmap.
+
+\textbf{Current Status (January 2025):} Phases 1--2 complete, 49 celestial objects catalogued.
+
+\subsection{Phase 1: Navigation \& Scale System \checkmark \textbf{IMPLEMENTED}}
+
+\textbf{Heliocentric zoom constraints:} Maximum zoom-out limited such that heliosphere (120 AU) appears as $\sim$10$\times$10 pixels, enabling scale transitions from planetary (km/s) $\rightarrow$ solar system (AU/s) $\rightarrow$ galactic (ly/s).
+
+\textbf{Orientation aids:} Breadcrumb location display, persistent Sun and Galactic Center indicators, reference frame switching (Ecliptic $\leftrightarrow$ Galactic).
+
+\subsection{Phase 2: Object Catalog Expansion \checkmark \textbf{IMPLEMENTED}}
+
+\textbf{Spacecraft (5 added):} Voyager 1 (~164 AU), Voyager 2 (~137 AU), New Horizons (~58 AU), JWST (L2, ~1.01 AU), Parker Solar Probe (~0.4 AU). Static positions for now; time-dependent trajectories planned.
+
+\textbf{Kuiper Belt (7 dwarf planets added):} Pluto (39.5 AU), Eris (96 AU), Makemake (45.8 AU), Haumea (43.3 AU), Sedna (85 AU), Gonggong (67.4 AU), Quaoar (43.4 AU).
+
+\textbf{Deep sky objects (13 Messier objects added):} Galaxies (M31, M33, M51, M81, M87, M104, M64, M101), Nebulae (M1, M8, M20, M27, M42, M57), Clusters (M13, M44, M45). Total landmark catalog: 49 objects spanning 0.4 AU (Parker) to 53 million ly (M87).
+
+\textbf{Remaining work:} Oort Cloud procedural generation, time-dependent spacecraft orbits, full 110-object Messier catalog.
+
+\subsection{Phase 3: Time Evolution ($\pm$100,000 Years)}
+
+Multi-fidelity propagation: Ephemeris ($\pm$1,000 yr, sub-km precision), Keplerian + secular ($\pm$10,000 yr), Statistical ($\pm$100,000 yr, galactic rotation).
+
+\textbf{Object-specific:} Stars (proper motion + radial velocity), Spacecraft (Chebyshev), KBOs (Keplerian + J2/J4).
+
+\subsection{Phase 4: Multi-Scale Shaders}
+
+\textbf{LOD rendering:}
+\begin{itemize}
+\item LOD 0 ($<$10 pc): Individual Gaussian splats
+\item LOD 1 (10--1000 pc): Clustered aggregates
+\item LOD 2 (1--50 kpc): Procedural Milky Way (4 spiral arms, central bulge, dust lanes)
+\item LOD 3 (50 kpc--10 Mpc): Galaxy sprites
+\item LOD 4 ($>$10 Mpc): Cosmic web filaments
+\end{itemize}
+
+\textbf{Multi-spectrum:} Visible, Infrared (dust transparent), X-ray (high-energy sources), Radio (synchrotron).
+
+\subsection{Phase 5: Enhanced Minimap}
+
+GPU-accelerated rendering via WebGL compute shader (120$\times$120 buffer), logarithmic brightness mapping, millions of objects visible as density field, view frustum visualization.
+
+\subsection{Phase 6: ML Compression \& Data}
+
+\textbf{Compression by type:} Gaia DR3 (1.8B stars, neural entropy, ~4 GB), Messier/NGC (direct JSON, ~500 KB), Spacecraft (Chebyshev, ~2 MB), Oort/galaxies (procedural, ~1 KB each).
+
+\textbf{Acceptance criteria:} Navigate Earth $\rightarrow$ heliosphere-as-dot, Voyager 1/2 clickable, $\pm$100,000 yr time scrub, Milky Way spiral visible, 60 FPS maintained.
+
 \section{Conclusion}
 
 Universe demonstrates the feasibility of combining neural rendering techniques with rigorous orbital mechanics for accessible astronomical visualization. The Heliocentric Logarithmic Grid provides principled handling of extreme dynamic range, while the tch-rs CUDA backend enables efficient training on real Gaia DR3 data. WebRTC streaming eliminates hardware barriers, enabling high-fidelity space exploration from any browser.
 
-Future work includes multi-user sessions, extended datasets (full Gaia DR3, exoplanet systems), and VR support via WebXR.
+The proposed planetarium roadmap extends Universe from solar system visualization to a comprehensive multi-scale explorer spanning planetary surfaces to cosmic web structures, with ML-compressed real data and procedurally-generated distant objects.
 
 \section*{Acknowledgments}
 

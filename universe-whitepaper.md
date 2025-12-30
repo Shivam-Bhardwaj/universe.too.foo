@@ -4,9 +4,9 @@
 
 ---
 
-**Authors:** [Your Name]  
-**Date:** December 2024  
-**Version:** 1.0
+**Author:** Shivam Bhardwaj
+**Date:** December 2025
+**Version:** 1.1
 
 ---
 
@@ -1205,25 +1205,155 @@ ingress:
 - **Simplified Moon:** Lunar orbit uses mean elements, not full ephemeris
 - **No Moons Beyond Earth:** Galilean moons, Titan, etc. not yet implemented
 
-### 10.2 Future Directions
+### 10.2 Interactive Universe Planetarium Roadmap
 
-**Short-term:**
-- Complete NVENC zero-copy pipeline
-- Add asteroid belt visualization
-- Implement multi-user session sharing
-- Mobile touch controls
+To transform Universe from a solar system viewer into a comprehensive heliocentric planetarium, we have designed and begun implementing a 6-phase development plan.
 
-**Medium-term:**
-- Extend to Milky Way galaxy structure
-- Add spacecraft trajectory visualization
-- Integrate with live telescope feeds
-- VR headset support via WebXR
+**Current Status (January 2025):** Phases 1-2 complete, 49 celestial objects catalogued.
 
-**Long-term:**
-- Procedural exoplanet systems from Kepler/TESS data
-- Cosmological scales (galaxy clusters, CMB)
-- Collaborative annotation and measurement tools
-- Integration with professional mission planning software
+#### Phase 1: Navigation & Scale System ✅ **IMPLEMENTED**
+
+**Heliocentric Zoom Constraints:**
+- Maximum zoom-out limited such that heliosphere (120 AU) appears as ~10×10 pixels
+- Prevents infinite zoom while maintaining observable-universe visibility
+- Implements scale-dependent camera speed: planetary (km/s) → solar system (AU/s) → galactic (ly/s)
+
+**Regime-Aware Navigation:**
+| Scale Regime | Distance Range | Speed Scaling |
+|--------------|----------------|---------------|
+| Planetary | < 1 G m | 100 m/s → 1000 km/s |
+| Solar System | 1 Gm → 100 Tm | 1000 km/s → 10 AU/s |
+| Interstellar | 100 Tm → 1 Em | 10 AU/s → 10 ly/s |
+| Galactic | 1 Em → 1 Zm | 10 ly/s → 10 kpc/s |
+| Intergalactic | > 1 Zm | 10 kpc/s → 10 Mpc/s |
+
+**Orientation Aids:**
+- Breadcrumb location display ("Solar System → Near Earth → 1.2 AU from Sun")
+- Persistent Sun and Galactic Center direction indicators
+- Reference frame switching (Ecliptic ↔ Galactic coordinates)
+- "Home" key (H) for instant return to Sun
+
+#### Phase 2: Object Catalog Expansion ✅ **IMPLEMENTED**
+
+**Spacecraft Trajectories (5 spacecraft added):**
+Add human exploration milestones with time-dependent positions:
+- Voyager 1 (~160 AU) - via JPL Horizons Chebyshev polynomials
+- Voyager 2 (~135 AU), New Horizons (~58 AU), Parker Solar Probe (0.05-0.9 AU)
+- JWST at L2 (~1.5M km) - Keplerian propagation
+
+**Solar System Edge:**
+- **Kuiper Belt** (30-50 AU): Named KBOs from MPCORB (Pluto, Eris, Makemake, ~3000 objects)
+- **Oort Cloud** (2,000-100,000 AU): Procedural generation with deterministic seed
+  - Parameters-only storage (~1 KB total)
+  - Client-side importance sampling generates ~1000 visible objects on-demand
+
+**Deep Sky Objects (13 Messier objects + famous objects added):**
+- Galaxies: M31 (Andromeda), M33 (Triangulum), M51 (Whirlpool), M81 (Bode's), M87 (Virgo A), M104 (Sombrero), M64 (Black Eye), M101 (Pinwheel)
+- Nebulae: M1 (Crab), M8 (Lagoon), M20 (Trifid), M27 (Dumbbell), M42 (Orion), M57 (Ring)
+- Clusters: M13 (Hercules), M44 (Beehive), M45 (Pleiades)
+- Nearby: Large/Small Magellanic Clouds, Galactic Center
+
+**Kuiper Belt (7 dwarf planets added):**
+- Pluto (39.5 AU), Eris (96 AU), Makemake (45.8 AU), Haumea (43.3 AU)
+- Sedna (85 AU, extreme orbit to 937 AU), Gonggong (67.4 AU), Quaoar (43.4 AU)
+
+#### Phase 3: Time Evolution System (Week 3)
+
+**Extended Temporal Range:**
+- ±100,000 years from J2000 (vs. current ±5,000 years)
+- Multi-fidelity propagation:
+  - Ephemeris (±1,000 years): Sub-kilometer precision
+  - Keplerian + secular (±10,000 years): Arc-second accuracy
+  - Statistical (±100,000 years): Galactic rotation, stellar proper motion
+
+**Object-Specific Propagation:**
+- **Stars**: Proper motion + radial velocity → 3D velocity field
+  - Apply galactic rotation for timescales > 10,000 years
+- **Spacecraft**: Chebyshev polynomial evaluation from JPL Horizons data
+- **KBOs**: Keplerian with J2/J4 secular perturbations
+- **Galaxies**: Static (negligible motion over 100ky)
+
+#### Phase 4: Multi-Scale Shaders (Weeks 4-5)
+
+**Level-of-Detail Rendering:**
+| LOD | Distance | Technique |
+|-----|----------|-----------|
+| 0 | < 10 pc | Individual Gaussian splats |
+| 1 | 10-1000 pc | Clustered splat aggregates |
+| 2 | 1-50 kpc | Procedural Milky Way structure |
+| 3 | 50 kpc - 10 Mpc | Galaxy sprites/billboards |
+| 4 | > 10 Mpc | Cosmic web filaments |
+
+**Milky Way Visualization:**
+When camera distance > 50 kpc from galactic center:
+- 4 logarithmic spiral arms (Perseus, Norma, Scutum-Centaurus, Sagittarius)
+- Central bar/bulge (triaxial ellipsoid, Sérsic profile)
+- Dust lanes on inner arm edges (exponential vertical profile)
+- Smooth LOD transition blending with individual star splats
+
+**Multi-Spectrum Support:**
+- **Visible**: Standard photometric colors (default)
+- **Infrared**: Dust transparency, cool object enhancement
+- **X-ray**: High-energy source filtering (neutron stars, black holes)
+- **Radio**: Synchrotron emission, pulsars, jets
+
+#### Phase 5: Enhanced Minimap (Week 5)
+
+**GPU-Accelerated Rendering:**
+Current implementation (Canvas 2D, ~9 solar bodies) replaced with:
+- WebGL compute shader accumulating density into 120×120 buffer
+- Atomic operations for concurrent splat contribution
+- Logarithmic brightness mapping: `intensity = log(1 + density) / 5`
+- Sphere projection with user-controlled rotation
+
+**Features:**
+- Entire dataset visible (millions of objects rendered as density field)
+- Camera position indicator (yellow dot with pulsing ring)
+- View frustum visualization (semi-transparent cone)
+- Click-to-jump navigation
+- Expandable full-screen mode
+
+#### Phase 6: ML Compression & Data Pipeline (Week 6)
+
+**Compression Strategy by Type:**
+| Object Type | Method | Storage |
+|-------------|--------|---------|
+| Gaia DR3 stars (1.8B) | Neural entropy coding | ~4 GB |
+| Messier/NGC (1,110) | Direct JSON | ~500 KB |
+| Spacecraft (50) | Chebyshev coefficients | ~2 MB |
+| Oort Cloud (virtual 10¹²) | Procedural parameters | ~1 KB |
+| Distant galaxies (virtual 10⁹) | Procedural parameters | ~1 KB |
+
+**Server Data Organization:**
+```
+/universe/
+  index.json              # Main manifest
+  cells/                  # HLG star cells (existing)
+  catalog/
+    spacecraft.json       # Trajectories
+    messier.json          # 110 objects
+    kbo_named.json        # Kuiper Belt
+  procedural/
+    oort_params.json      # Client-side generation
+    galaxy_params.json
+    milky_way.json        # Spiral arm parameters
+  landmarks.json          # All POIs
+```
+
+**Implementation Files:**
+- `client/src/scale_system.ts` (NEW): Scale regime logic
+- `client/src/shaders/milky_way.wgsl` (NEW): Procedural galaxy
+- `client/src/minimap_renderer.ts` (NEW): GPU minimap
+- `crates/universe-data/src/catalog/` (NEW): Object schemas
+- `crates/universe-sim/src/spacecraft_propagator.rs` (NEW)
+
+**Acceptance Criteria:**
+1. Navigate from Earth surface → view heliosphere as tiny dot
+2. Voyager 1/2 visible and clickable at real positions
+3. Scrub ±100,000 years with stellar proper motion visible
+4. Milky Way spiral structure visible when zoomed out
+5. Minimap shows all dataset objects in real-time
+6. Maintain 60 FPS across all scales
 
 ---
 
