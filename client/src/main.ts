@@ -9,6 +9,7 @@ import { detectRuntime, getRuntimeErrorMessage } from './runtime';
 import { LandmarksManager } from './landmarks';
 import { determineRegime, ScaleRegime } from './scale_system';
 import { ClientTimeController, J2000_JD } from './time_controller';
+import { estimateStellarVelocity, propagateStarFull } from './stellar_motion';
 
 type Dom = {
     video: HTMLCanvasElement;
@@ -825,6 +826,9 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         if (hudTimeEl) {
             hudTimeEl.textContent = timeController.toDateString();
         }
+
+        // Mark buffers dirty so stars get repositioned with proper motion
+        dirtyRebuild = true;
     });
 
     // Minimap orb (DOM/canvas)
@@ -1693,9 +1697,34 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
                 const splatIdx = cursor + i;
 
                 const dst3 = splatIdx * 3;
-                worldPos[dst3 + 0] = c.centroidX + splats14[src + 0];
-                worldPos[dst3 + 1] = c.centroidY + splats14[src + 1];
-                worldPos[dst3 + 2] = c.centroidZ + splats14[src + 2];
+                const baseX = c.centroidX + splats14[src + 0];
+                const baseY = c.centroidY + splats14[src + 1];
+                const baseZ = c.centroidZ + splats14[src + 2];
+
+                // Apply stellar proper motion based on time offset
+                const currentJD = timeController.getJulianDate();
+                if (Math.abs(currentJD - J2000_JD) > 1) {  // Only if time offset exists
+                    // Generate deterministic velocity based on position
+                    const seed = Math.abs(Math.floor(baseX + baseY * 1000 + baseZ * 1000000));
+                    const velocity = estimateStellarVelocity(baseX, baseY, baseZ, seed);
+
+                    // Propagate position
+                    const newPos = propagateStarFull(
+                        { x: baseX, y: baseY, z: baseZ },
+                        velocity,
+                        J2000_JD,
+                        currentJD
+                    );
+
+                    worldPos[dst3 + 0] = newPos.x;
+                    worldPos[dst3 + 1] = newPos.y;
+                    worldPos[dst3 + 2] = newPos.z;
+                } else {
+                    // No time offset, use base positions
+                    worldPos[dst3 + 0] = baseX;
+                    worldPos[dst3 + 1] = baseY;
+                    worldPos[dst3 + 2] = baseZ;
+                }
 
                 const dst16 = splatIdx * 16;
                 gpu[dst16 + 0] = (worldPos[dst3 + 0] - camera.origin.x) as number;
