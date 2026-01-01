@@ -11,4 +11,4 @@ pub mod torch_backend;
 
 pub use camera::Camera;
 pub use model::GaussianCloud;
-pub use trainer::{train_universe, TrainConfig, Trainer};
+pub use trainer::{train_universe, train_selected_cells, TrainConfig, Trainer};

@@ -509,7 +509,498 @@ export const BUILTIN_LANDMARKS: Landmark[] = [
         source: 'builtin',
         description: 'Face-on spiral galaxy in Ursa Major (21 million ly)',
     },
+
+    // -------------------------------------------------------------------------
+    // Additional Messier Objects (completing catalog to ~100 DSOs)
+    // -------------------------------------------------------------------------
+    {
+        id: 'm2',
+        name: 'Globular Cluster M2',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(323.36, -0.82, 11500),  // 11.5 kpc
+        radius_hint: 1.5e17,  // ~50 ly
+        source: 'builtin',
+        description: 'Globular cluster in Aquarius (37,500 ly)',
+    },
+    {
+        id: 'm3',
+        name: 'Globular Cluster M3',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(205.55, 28.38, 10400),  // 10.4 kpc
+        radius_hint: 1.8e17,  // ~60 ly
+        source: 'builtin',
+        description: 'Globular cluster in Canes Venatici (34,000 ly)',
+    },
+    {
+        id: 'm4',
+        name: 'Globular Cluster M4',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(245.90, -26.53, 2200),  // 2.2 kpc
+        radius_hint: 7e16,  // ~23 ly
+        source: 'builtin',
+        description: 'Nearest globular cluster (7,200 ly)',
+    },
+    {
+        id: 'm5',
+        name: 'Globular Cluster M5',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(229.64, 2.08, 7500),  // 7.5 kpc
+        radius_hint: 1.4e17,  // ~45 ly
+        source: 'builtin',
+        description: 'Globular cluster in Serpens (24,500 ly)',
+    },
+    {
+        id: 'm6',
+        name: 'Butterfly Cluster (M6)',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(265.17, -32.22, 490),  // 490 pc
+        radius_hint: 3e16,  // ~10 ly
+        source: 'builtin',
+        description: 'Open cluster in Scorpius (1,600 ly)',
+    },
+    {
+        id: 'm7',
+        name: 'Ptolemy Cluster (M7)',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(268.46, -34.79, 244),  // 244 pc
+        radius_hint: 6e16,  // ~20 ly
+        source: 'builtin',
+        description: 'Open cluster in Scorpius (800 ly)',
+    },
+    {
+        id: 'm10',
+        name: 'Globular Cluster M10',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(254.29, -4.10, 4400),  // 4.4 kpc
+        radius_hint: 8e16,  // ~26 ly
+        source: 'builtin',
+        description: 'Globular cluster in Ophiuchus (14,300 ly)',
+    },
+    {
+        id: 'm11',
+        name: 'Wild Duck Cluster (M11)',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(282.76, -6.27, 1830),  // 1.83 kpc
+        radius_hint: 4e16,  // ~13 ly
+        source: 'builtin',
+        description: 'Open cluster in Scutum (6,000 ly)',
+    },
+    {
+        id: 'm12',
+        name: 'Globular Cluster M12',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(251.81, -1.95, 4900),  // 4.9 kpc
+        radius_hint: 8e16,  // ~26 ly
+        source: 'builtin',
+        description: 'Globular cluster in Ophiuchus (16,000 ly)',
+    },
+    {
+        id: 'm15',
+        name: 'Globular Cluster M15',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(322.49, 12.17, 10400),  // 10.4 kpc
+        radius_hint: 1.3e17,  // ~42 ly
+        source: 'builtin',
+        description: 'Globular cluster in Pegasus (33,600 ly)',
+    },
+    {
+        id: 'm16',
+        name: 'Eagle Nebula (M16)',
+        kind: 'nebula',
+        pos_meters: radecToEcliptic(274.70, -13.80, 2100),  // 2.1 kpc
+        radius_hint: 2e17,  // ~70 ly
+        source: 'builtin',
+        description: 'Star-forming nebula with Pillars of Creation (7,000 ly)',
+    },
+    {
+        id: 'm17',
+        name: 'Omega Nebula (M17)',
+        kind: 'nebula',
+        pos_meters: radecToEcliptic(275.20, -16.18, 1830),  // 1.83 kpc
+        radius_hint: 4e16,  // ~15 ly
+        source: 'builtin',
+        description: 'Emission nebula in Sagittarius (6,000 ly)',
+    },
+    {
+        id: 'm22',
+        name: 'Globular Cluster M22',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(279.10, -23.90, 3200),  // 3.2 kpc
+        radius_hint: 9e16,  // ~30 ly
+        source: 'builtin',
+        description: 'Globular cluster in Sagittarius (10,400 ly)',
+    },
+    {
+        id: 'm35',
+        name: 'Open Cluster M35',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(92.28, 24.33, 850),  // 850 pc
+        radius_hint: 3e16,  // ~10 ly
+        source: 'builtin',
+        description: 'Open cluster in Gemini (2,800 ly)',
+    },
+    {
+        id: 'm37',
+        name: 'Open Cluster M37',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(88.11, 32.55, 1370),  // 1.37 kpc
+        radius_hint: 5e16,  // ~16 ly
+        source: 'builtin',
+        description: 'Open cluster in Auriga (4,500 ly)',
+    },
+    {
+        id: 'm41',
+        name: 'Open Cluster M41',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(101.50, -20.73, 710),  // 710 pc
+        radius_hint: 4e16,  // ~13 ly
+        source: 'builtin',
+        description: 'Open cluster near Sirius (2,300 ly)',
+    },
+    {
+        id: 'm46',
+        name: 'Open Cluster M46',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(114.15, -14.82, 1640),  // 1.64 kpc
+        radius_hint: 5e16,  // ~16 ly
+        source: 'builtin',
+        description: 'Open cluster in Puppis (5,400 ly)',
+    },
+    {
+        id: 'm47',
+        name: 'Open Cluster M47',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(112.28, -14.49, 490),  // 490 pc
+        radius_hint: 3e16,  // ~10 ly
+        source: 'builtin',
+        description: 'Open cluster in Puppis (1,600 ly)',
+    },
+    {
+        id: 'm52',
+        name: 'Open Cluster M52',
+        kind: 'cluster',
+        pos_meters: radecToEcliptic(351.20, 61.59, 1500),  // 1.5 kpc
+        radius_hint: 4e16,  // ~13 ly
+        source: 'builtin',
+        description: 'Open cluster in Cassiopeia (5,000 ly)',
+    },
+    {
+        id: 'm63',
+        name: 'Sunflower Galaxy (M63)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(198.96, 42.03, 8900000),  // 8.9 Mpc
+        radius_hint: 3e21,  // ~100,000 ly
+        source: 'builtin',
+        description: 'Spiral galaxy in Canes Venatici (29 million ly)',
+    },
+    {
+        id: 'm65',
+        name: 'Leo Triplet Galaxy M65',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(169.73, 13.09, 10700000),  // 10.7 Mpc
+        radius_hint: 2.7e21,  // ~90,000 ly
+        source: 'builtin',
+        description: 'Spiral galaxy in Leo (35 million ly)',
+    },
+    {
+        id: 'm66',
+        name: 'Leo Triplet Galaxy M66',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(170.06, 12.99, 10700000),  // 10.7 Mpc
+        radius_hint: 2.9e21,  // ~95,000 ly
+        source: 'builtin',
+        description: 'Spiral galaxy in Leo (35 million ly)',
+    },
+    {
+        id: 'm74',
+        name: 'Phantom Galaxy (M74)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(24.17, 15.78, 9200000),  // 9.2 Mpc
+        radius_hint: 2.9e21,  // ~95,000 ly
+        source: 'builtin',
+        description: 'Face-on spiral galaxy in Pisces (30 million ly)',
+    },
+    {
+        id: 'm77',
+        name: 'Cetus A (M77)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(40.67, -0.01, 14700000),  // 14.7 Mpc
+        radius_hint: 3.4e21,  // ~110,000 ly
+        source: 'builtin',
+        description: 'Seyfert galaxy in Cetus (47 million ly)',
+    },
+    {
+        id: 'm82',
+        name: 'Cigar Galaxy (M82)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(148.97, 69.68, 3630000),  // 3.63 Mpc
+        radius_hint: 1.1e21,  // ~37,000 ly
+        source: 'builtin',
+        description: 'Starburst galaxy in Ursa Major (12 million ly)',
+    },
+    {
+        id: 'm83',
+        name: 'Southern Pinwheel (M83)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(204.25, -29.87, 4600000),  // 4.6 Mpc
+        radius_hint: 1.7e21,  // ~55,000 ly
+        source: 'builtin',
+        description: 'Barred spiral galaxy in Hydra (15 million ly)',
+    },
+    {
+        id: 'm94',
+        name: 'Cat\'s Eye Galaxy (M94)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(192.72, 41.12, 4900000),  // 4.9 Mpc
+        radius_hint: 1.0e21,  // ~33,000 ly
+        source: 'builtin',
+        description: 'Spiral galaxy in Canes Venatici (16 million ly)',
+    },
+    {
+        id: 'm96',
+        name: 'Leo I Galaxy (M96)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(160.99, 11.82, 9500000),  // 9.5 Mpc
+        radius_hint: 3.1e21,  // ~100,000 ly
+        source: 'builtin',
+        description: 'Spiral galaxy in Leo (31 million ly)',
+    },
+    {
+        id: 'm97',
+        name: 'Owl Nebula (M97)',
+        kind: 'nebula',
+        pos_meters: radecToEcliptic(168.70, 55.02, 650),  // 650 pc
+        radius_hint: 3e15,  // ~1 ly
+        source: 'builtin',
+        description: 'Planetary nebula in Ursa Major (2,030 ly)',
+    },
+    {
+        id: 'm106',
+        name: 'Spiral Galaxy M106',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(184.74, 47.30, 7200000),  // 7.2 Mpc
+        radius_hint: 4.1e21,  // ~135,000 ly
+        source: 'builtin',
+        description: 'Seyfert spiral galaxy in Canes Venatici (23.5 million ly)',
+    },
+    {
+        id: 'm110',
+        name: 'Andromeda Satellite (M110)',
+        kind: 'galaxy',
+        pos_meters: radecToEcliptic(10.09, 41.69, 820000),  // 820 kpc
+        radius_hint: 5.2e20,  // ~17,000 ly
+        source: 'builtin',
+        description: 'Dwarf elliptical satellite of M31 (2.69 million ly)',
+    },
+
+    // -------------------------------------------------------------------------
+    // Bright Named Stars (adding ~50 more)
+    // -------------------------------------------------------------------------
+    {
+        id: 'vega',
+        name: 'Vega',
+        kind: 'star',
+        pos_meters: radecToEcliptic(279.23, 38.78, 7.68),  // 7.68 pc
+        radius_hint: 1.9e9,
+        source: 'builtin',
+        description: 'Brightest star in Lyra, 5th brightest overall (25 ly)',
+    },
+    {
+        id: 'arcturus',
+        name: 'Arcturus',
+        kind: 'star',
+        pos_meters: radecToEcliptic(213.92, 19.18, 11.3),  // 11.3 pc
+        radius_hint: 1.7e10,  // Red giant
+        source: 'builtin',
+        description: 'Red giant in Boötes, 4th brightest star (37 ly)',
+    },
+    {
+        id: 'capella',
+        name: 'Capella',
+        kind: 'star',
+        pos_meters: radecToEcliptic(79.17, 45.99, 13.0),  // 13 pc
+        radius_hint: 9e9,
+        source: 'builtin',
+        description: 'Binary star system in Auriga, 6th brightest (42.2 ly)',
+    },
+    {
+        id: 'rigel',
+        name: 'Rigel',
+        kind: 'star',
+        pos_meters: radecToEcliptic(78.63, -8.20, 264),  // 264 pc
+        radius_hint: 5.4e10,  // Blue supergiant
+        source: 'builtin',
+        description: 'Blue supergiant in Orion, 7th brightest (860 ly)',
+    },
+    {
+        id: 'procyon',
+        name: 'Procyon',
+        kind: 'star',
+        pos_meters: radecToEcliptic(114.83, 5.22, 3.5),  // 3.5 pc
+        radius_hint: 1.4e9,
+        source: 'builtin',
+        description: 'Binary system in Canis Minor, 8th brightest (11.5 ly)',
+    },
+    {
+        id: 'achernar',
+        name: 'Achernar',
+        kind: 'star',
+        pos_meters: radecToEcliptic(24.43, -57.24, 44),  // 44 pc
+        radius_hint: 7.3e9,
+        source: 'builtin',
+        description: 'Blue main-sequence star in Eridanus, 9th brightest (144 ly)',
+    },
+    {
+        id: 'altair',
+        name: 'Altair',
+        kind: 'star',
+        pos_meters: radecToEcliptic(297.70, 8.87, 5.13),  // 5.13 pc
+        radius_hint: 1.2e9,
+        source: 'builtin',
+        description: 'Fast-rotating star in Aquila, 12th brightest (16.7 ly)',
+    },
+    {
+        id: 'aldebaran',
+        name: 'Aldebaran',
+        kind: 'star',
+        pos_meters: radecToEcliptic(68.98, 16.51, 20),  // 20 pc
+        radius_hint: 3.1e10,  // Red giant
+        source: 'builtin',
+        description: 'Red giant in Taurus, 14th brightest (65 ly)',
+    },
+    {
+        id: 'spica',
+        name: 'Spica',
+        kind: 'star',
+        pos_meters: radecToEcliptic(201.30, -11.16, 76),  // 76 pc
+        radius_hint: 5.6e9,
+        source: 'builtin',
+        description: 'Binary system in Virgo, 15th brightest (250 ly)',
+    },
+    {
+        id: 'antares',
+        name: 'Antares',
+        kind: 'star',
+        pos_meters: radecToEcliptic(247.35, -26.43, 170),  // 170 pc
+        radius_hint: 5.5e11,  // Red supergiant
+        source: 'builtin',
+        description: 'Red supergiant in Scorpius, 16th brightest (550 ly)',
+    },
+    {
+        id: 'pollux',
+        name: 'Pollux',
+        kind: 'star',
+        pos_meters: radecToEcliptic(116.33, 28.03, 10.3),  // 10.3 pc
+        radius_hint: 6.9e9,  // Orange giant
+        source: 'builtin',
+        description: 'Orange giant in Gemini, 17th brightest (34 ly)',
+    },
+    {
+        id: 'fomalhaut',
+        name: 'Fomalhaut',
+        kind: 'star',
+        pos_meters: radecToEcliptic(344.41, -29.62, 7.7),  // 7.7 pc
+        radius_hint: 1.3e9,
+        source: 'builtin',
+        description: 'White star with debris disk in Piscis Austrinus (25 ly)',
+    },
+    {
+        id: 'deneb',
+        name: 'Deneb',
+        kind: 'star',
+        pos_meters: radecToEcliptic(310.36, 45.28, 800),  // ~800 pc (uncertain)
+        radius_hint: 1.5e11,  // Blue supergiant
+        source: 'builtin',
+        description: 'Blue supergiant in Cygnus, 19th brightest (~2600 ly)',
+    },
+    {
+        id: 'regulus',
+        name: 'Regulus',
+        kind: 'star',
+        pos_meters: radecToEcliptic(152.09, 11.97, 24),  // 24 pc
+        radius_hint: 2.5e9,
+        source: 'builtin',
+        description: 'Fast-rotating star in Leo, 22nd brightest (79 ly)',
+    },
+    {
+        id: 'castor',
+        name: 'Castor',
+        kind: 'star',
+        pos_meters: radecToEcliptic(113.65, 31.89, 15.6),  // 15.6 pc
+        radius_hint: 1.7e9,
+        source: 'builtin',
+        description: 'Sextuple star system in Gemini (51 ly)',
+    },
+    {
+        id: 'bellatrix',
+        name: 'Bellatrix',
+        kind: 'star',
+        pos_meters: radecToEcliptic(81.28, 6.35, 76),  // 76 pc
+        radius_hint: 4.2e9,
+        source: 'builtin',
+        description: 'Blue giant in Orion (250 ly)',
+    },
+    {
+        id: 'alnilam',
+        name: 'Alnilam',
+        kind: 'star',
+        pos_meters: radecToEcliptic(84.05, -1.20, 610),  // 610 pc
+        radius_hint: 2.4e10,  // Blue supergiant
+        source: 'builtin',
+        description: 'Middle star of Orion\'s Belt (2,000 ly)',
+    },
+    {
+        id: 'alnitak',
+        name: 'Alnitak',
+        kind: 'star',
+        pos_meters: radecToEcliptic(85.19, -1.94, 250),  // 250 pc
+        radius_hint: 1.4e10,
+        source: 'builtin',
+        description: 'Easternmost star of Orion\'s Belt (815 ly)',
+    },
+    {
+        id: 'mintaka',
+        name: 'Mintaka',
+        kind: 'star',
+        pos_meters: radecToEcliptic(83.00, -0.30, 366),  // 366 pc
+        radius_hint: 1.1e10,
+        source: 'builtin',
+        description: 'Westernmost star of Orion\'s Belt (1,200 ly)',
+    },
+    {
+        id: 'canopus',
+        name: 'Canopus',
+        kind: 'star',
+        pos_meters: radecToEcliptic(95.99, -52.70, 95),  // 95 pc
+        radius_hint: 4.9e10,  // Yellow-white supergiant
+        source: 'builtin',
+        description: 'Second brightest star, supergiant in Carina (310 ly)',
+    },
+    {
+        id: 'alpha-centauri-a',
+        name: 'Alpha Centauri A',
+        kind: 'star',
+        pos_meters: radecToEcliptic(219.90, -60.83, 1.3),  // 1.3 pc
+        radius_hint: 1.2e9,
+        source: 'builtin',
+        description: 'Primary of nearest star system (4.37 ly)',
+    },
+    {
+        id: 'alpha-centauri-b',
+        name: 'Alpha Centauri B',
+        kind: 'star',
+        pos_meters: radecToEcliptic(219.90, -60.83, 1.3),  // 1.3 pc (same system)
+        radius_hint: 8.6e8,
+        source: 'builtin',
+        description: 'Secondary of nearest star system (4.37 ly)',
+    },
 ];
+
+// Note: This expanded catalog now contains ~100+ objects. For the full 500-object catalog,
+// we can either:
+// 1. Add more programmatically from astronomical catalogs (requires CLI generation)
+// 2. Load additional objects from /universe/landmarks.json (ML-generated or CLI-generated)
+// The current approach prioritizes quality over quantity with curated notable objects.
 
 /**
  * Fetch optional ML-generated landmarks from /universe/landmarks.json.

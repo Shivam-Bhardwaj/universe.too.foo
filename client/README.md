@@ -33,19 +33,23 @@ npm run build
 
 ## Features
 
-### ✅ Phase 1: Navigation & Scale System
-- **Regime-aware speed scaling**: Auto-adjusts from planetary (km/s) to intergalactic (Mpc/s)
-- **5 scale regimes**: Planetary, Solar System, Interstellar, Galactic, Intergalactic
-- **Zoom limits**: 1 km minimum to ~300 Mpc maximum
-- **Breadcrumb display**: Always know your location context
-- **H key**: Instant jump to Sun
+### ✅ NASA Eyes-Style Anchor Navigation
+- **Per-anchor local bubbles**: Each landmark (Sun, Earth, Andromeda) is a local reference frame
+- **Zoom-out limit**: Can't zoom out infinitely - max distance keeps anchor's system ≥10% of screen
+- **Warp between anchors**: Search → select → jump → anchor switches on arrival
+- **Smart prefetch**: Target cells load during jump animation (reduced buffering)
+- **Breadcrumb HUD**: Shows `Anchor Name • Distance from Anchor • Distance to Sun`
 
-### ✅ Phase 2: Object Catalog (49 objects)
+### ✅ Expanded Landmark Catalog (100+ objects)
 - **9 Planets**: Sun through Neptune
-- **5 Spacecraft**: Voyager 1 (~164 AU), Voyager 2 (~137 AU), New Horizons (~58 AU), JWST (L2), Parker Solar Probe
 - **7 Dwarf Planets/KBOs**: Pluto, Eris, Makemake, Haumea, Sedna, Gonggong, Quaoar
-- **13 Messier Objects**: M8, M13, M20, M27, M33, M44, M51, M57, M64, M81, M87, M101, M104
-- **Famous objects**: Andromeda, Magellanic Clouds, Orion Nebula, Crab Nebula, Pleiades, Sirius, Betelgeuse
+- **5 Spacecraft**: Voyager 1/2, New Horizons, JWST, Parker Solar Probe
+- **~30 Bright Stars**: Sirius, Betelgeuse, Vega, Arcturus, Rigel, Deneb, Canopus, Alpha Centauri, Proxima Centauri, and more
+- **~40 Messier Objects**:
+  - **Galaxies**: Andromeda (M31), Whirlpool (M51), Sombrero (M104), Triangulum (M33), and more
+  - **Nebulae**: Orion (M42), Eagle (M16), Lagoon (M8), Ring (M57), Crab (M1), and more
+  - **Clusters**: Pleiades (M45), Hercules (M13), Beehive (M44), and more
+- **Infrastructure**: Supports loading additional landmarks from `/universe/landmarks.json` (500+ possible)
 
 ### ✅ Phase 3: Time Travel (±100,000 years)
 - **Time slider**: Scrub through 200,000 years instantly
@@ -63,27 +67,49 @@ npm run build
 
 ## Controls
 
-### Movement
+### Movement (Anchor-Based Navigation)
 | Input | Action |
 |-------|--------|
-| **WASD** | Move camera (speed auto-scales by distance) |
+| **WASD** | Move camera (clamped to current anchor's local bubble) |
+| **Scroll wheel** | Forward/backward thrust |
 | **Mouse drag** | Look around |
 | **Space** | Move up |
 | **Shift** | Move down |
 | **Q** | Decrease speed multiplier |
 | **E** | Increase speed multiplier |
-| **H** | Jump to Sun (Home) |
+| **H** | Jump to Sun (resets anchor to Sun) |
+
+**Navigation Model:**
+- You explore within a **local bubble** around the current anchor (Sun, Earth, Andromeda, etc.)
+- Max distance is computed so the anchor's system stays visible (≥10% of screen height)
+- To explore distant regions, **warp to a landmark** (search → click → auto-switch anchor)
+
+### Landmark Search & Warping
+| Input | Action |
+|-------|--------|
+| **Search panel** (top-right) | Type landmark name (e.g., "Andromeda", "Orion", "M13") |
+| **Click result** | Initiate warp to landmark (2-10s animation) |
+| **Click object** (desktop) | Warp to clicked planet/spacecraft |
+| **Tap object** (mobile) | Warp to tapped object |
+| **Long-press** (mobile) | Instant teleport to object |
+
+**During warp:**
+- Camera auto-rotates to face target
+- Target cells prefetch (reduces buffering on arrival)
+- Anchor automatically switches when you arrive
 
 ### Quick Navigation
 | Key | Destination |
 |-----|-------------|
-| **0** | Solar system overview (1.5 AU) |
-| **1** | Earth (1 AU) |
-| **2** | Mars (1.5 AU) |
-| **3** | Jupiter (5.2 AU) |
-| **4** | Saturn (9.5 AU) |
-| **5** | Uranus (19.2 AU) |
-| **6** | Neptune (30 AU) |
+| **0** | Solar system overview (1.5 AU from Sun) |
+| **1** | Earth (1 AU from Sun) |
+| **2** | Mars (1.5 AU from Sun) |
+| **3** | Jupiter (5.2 AU from Sun) |
+| **4** | Saturn (9.5 AU from Sun) |
+| **5** | Uranus (19.2 AU from Sun) |
+| **6** | Neptune (30 AU from Sun) |
+
+**Note:** Pressing these keys updates position but does **not** change the anchor (anchor switches only on warp completion).
 
 ### Time Controls (UI Panel)
 - **Slider**: Scrub -100,000 to +100,000 years

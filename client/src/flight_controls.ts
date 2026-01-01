@@ -68,6 +68,7 @@ export interface JumpState {
     phase: JumpPhase;
     targetPos: Vec3d;
     targetName: string;
+    targetId: string;  // For anchor switching
     startPos: Vec3d;
     startDist: number;
     startTime: number;
@@ -112,6 +113,7 @@ export class FlightControls {
         phase: 'inactive',
         targetPos: { x: 0, y: 0, z: 0 },
         targetName: '',
+        targetId: '',
         startPos: { x: 0, y: 0, z: 0 },
         startDist: 0,
         startTime: 0,
@@ -124,6 +126,9 @@ export class FlightControls {
         startYaw: 0,
         startPitch: 0,
     };
+
+    // Jump completion callback (for anchor switching in main)
+    private onJumpComplete: ((targetId: string, targetName: string, targetPos: Vec3d) => void) | null = null;
 
     // Saved camera settings (restored after jump)
     private savedTravelTime = 60.0;
@@ -168,10 +173,17 @@ export class FlightControls {
     }
 
     /**
+     * Set callback to be invoked when jump completes (for anchor switching).
+     */
+    setJumpCompleteCallback(callback: ((targetId: string, targetName: string, targetPos: Vec3d) => void) | null) {
+        this.onJumpComplete = callback;
+    }
+
+    /**
      * Initiate a jump/warp toward a target.
      * The camera auto-orients to face the target, then accelerates forward.
      */
-    startJump(targetPos: Vec3d, targetName: string = '', targetRadiusM?: number): void {
+    startJump(targetPos: Vec3d, targetName: string = '', targetId: string = '', targetRadiusM?: number): void {
         // If already jumping, cancel first to restore saved settings before saving again
         if (this.isJumping()) {
             this.cancelJump();
@@ -250,6 +262,7 @@ export class FlightControls {
         this.jumpState.phase = phase;
         this.jumpState.targetPos = { ...targetPos };
         this.jumpState.targetName = targetName;
+        this.jumpState.targetId = targetId;
         this.jumpState.startPos = { ...this.camera.position };
         this.jumpState.startDist = dist;
         this.jumpState.startTime = performance.now() / 1000;
@@ -295,6 +308,11 @@ export class FlightControls {
      * Internal: complete the jump (called when we arrive).
      */
     private completeJump(): void {
+        // Invoke callback before clearing state (so main can switch anchor)
+        if (this.onJumpComplete && this.jumpState.targetId) {
+            this.onJumpComplete(this.jumpState.targetId, this.jumpState.targetName, this.jumpState.targetPos);
+        }
+
         this.jumpState.phase = 'inactive';
 
         // Restore camera settings
@@ -416,7 +434,9 @@ export class FlightControls {
 
         const factor = isPinch ? delta : -delta * 0.0001;
         const newRadius = this.orbitState.radius * (1 + factor);
-        this.orbitState.radius = clamp(newRadius, 1e7, 1e15);
+        // Clamp orbit radius to anchor's local bubble
+        const maxRadius = this.camera.maxLocalDistanceM;
+        this.orbitState.radius = clamp(newRadius, 1e7, maxRadius);
     }
 
     /**
@@ -705,6 +725,9 @@ export class FlightControls {
         this.throttleTarget = 0.0;
     }
 }
+
+
+
 
 
 

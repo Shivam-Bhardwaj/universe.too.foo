@@ -20,6 +20,8 @@ pub mod ml_shards;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod stars;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod landmarks;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod pipeline;
 
 pub use splat::{GaussianSplat, CompressedSplat};
@@ -30,5 +32,7 @@ pub use manifest::{CellManifest, CellEntry};
 pub use ephemeris::{EphemerisProvider, SolarSystemBody, BodyState, Velocity, download_de440};
 #[cfg(not(target_arch = "wasm32"))]
 pub use stars::{StarCatalog, StarRecord, generate_synthetic_stars};
+#[cfg(not(target_arch = "wasm32"))]
+pub use landmarks::{Landmark, LandmarkKind, Position as LandmarkPosition, load_landmarks_json};
 #[cfg(not(target_arch = "wasm32"))]
 pub use pipeline::{DataPipeline, PipelineConfig, merge_manifests};

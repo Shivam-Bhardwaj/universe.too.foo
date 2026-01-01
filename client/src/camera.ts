@@ -3,6 +3,8 @@ import {
     computeSpeed,
     computeRegimeBoundaryBlend,
     REGIME_SPEEDS,
+    HELIOSPHERE_RADIUS,
+    computeMaxDistance,
 } from './scale_system';
 
 export interface Vec3d {
@@ -129,6 +131,15 @@ export class LocalCamera {
     logDepthC = 1.0;
 
     // ---------------------------------------------------------------------
+    // Per-anchor navigation state (NASA Eyes-style local bubble)
+    // ---------------------------------------------------------------------
+    anchorId: string = 'sun';
+    anchorName: string = 'Sun';
+    anchorPos: Vec3d = { x: 0, y: 0, z: 0 };
+    anchorSystemRadiusM: number = HELIOSPHERE_RADIUS;  // Default: heliosphere
+    maxLocalDistanceM: number = 1e25;  // Computed based on FOV + viewport
+
+    // ---------------------------------------------------------------------
     // Navigation / "gain" tuning (time-based)
     //
     // Desired UX:
@@ -192,19 +203,23 @@ export class LocalCamera {
         const newX = this.position.x + mx * this.speed * dt;
         const newY = this.position.y + my * this.speed * dt;
         const newZ = this.position.z + mz * this.speed * dt;
-        const newDist = Math.sqrt(newX * newX + newY * newY + newZ * newZ);
 
-        // Enforce distance limits (min 1 km, max based on heliosphere constraint)
-        const MIN_DISTANCE = 1e3;  // 1 km minimum
-        const MAX_DISTANCE = 1e25; // ~300 Mpc maximum (computed from heliosphere constraint)
+        // Enforce per-anchor local bubble constraint
+        // Distance from current anchor (not origin)
+        const offsetX = newX - this.anchorPos.x;
+        const offsetY = newY - this.anchorPos.y;
+        const offsetZ = newZ - this.anchorPos.z;
+        const distFromAnchor = Math.sqrt(offsetX * offsetX + offsetY * offsetY + offsetZ * offsetZ);
 
-        if (newDist < MIN_DISTANCE || newDist > MAX_DISTANCE) {
-            // Clamp to limit sphere
-            const targetDist = clamp(newDist, MIN_DISTANCE, MAX_DISTANCE);
-            const scale = targetDist / Math.max(1e-10, newDist);
-            this.position.x = newX * scale;
-            this.position.y = newY * scale;
-            this.position.z = newZ * scale;
+        const MIN_DISTANCE = 1e3;  // 1 km minimum from anchor
+
+        if (distFromAnchor < MIN_DISTANCE || distFromAnchor > this.maxLocalDistanceM) {
+            // Clamp to local bubble around anchor
+            const targetDist = clamp(distFromAnchor, MIN_DISTANCE, this.maxLocalDistanceM);
+            const scale = targetDist / Math.max(1e-10, distFromAnchor);
+            this.position.x = this.anchorPos.x + offsetX * scale;
+            this.position.y = this.anchorPos.y + offsetY * scale;
+            this.position.z = this.anchorPos.z + offsetZ * scale;
         } else {
             this.position.x = newX;
             this.position.y = newY;
@@ -365,6 +380,35 @@ export class LocalCamera {
         out[54] = this.fovY;
         out[55] = this.logDepthC;
         return out;
+    }
+
+    /**
+     * Update max local distance based on viewport height (heliosphere constraint).
+     * Ensures the anchor's system bubble stays >= 10% of screen height.
+     */
+    updateMaxLocalDistance(viewportHeight: number) {
+        const targetPixels = viewportHeight * 0.10;  // 10% of viewport height
+        this.maxLocalDistanceM = computeMaxDistance(this.fovY, viewportHeight, targetPixels);
+    }
+
+    /**
+     * Set navigation anchor (called when arriving at a new destination).
+     */
+    setAnchor(id: string, name: string, pos: Vec3d, systemRadiusM: number = HELIOSPHERE_RADIUS) {
+        this.anchorId = id;
+        this.anchorName = name;
+        this.anchorPos = { ...pos };
+        this.anchorSystemRadiusM = systemRadiusM;
+    }
+
+    /**
+     * Get distance from current anchor.
+     */
+    getDistanceFromAnchor(): number {
+        const dx = this.position.x - this.anchorPos.x;
+        const dy = this.position.y - this.anchorPos.y;
+        const dz = this.position.z - this.anchorPos.z;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 }
 

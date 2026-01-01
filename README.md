@@ -123,6 +123,90 @@ npm run dev
 
 Open `http://localhost:3000` (Vite proxies `/stream` and `/control` to the server).
 
+## Navigation System (NASA Eyes-style)
+
+The client uses an **anchor-based navigation model** inspired by NASA Eyes:
+
+- **Current anchor**: Each landmark (Sun, Earth, Andromeda, etc.) is a local reference frame
+- **Local bubble**: You explore within a bubble around the current anchor
+  - Max distance is computed so the anchor's system (heliosphere for Sun) stays ≥10% of screen height
+  - Prevents accidentally zooming out to "empty space"
+- **Warping between anchors**: Search for a landmark → click to warp → anchor switches on arrival
+- **Breadcrumb HUD**: Shows `Anchor Name • Distance from Anchor • Distance to Sun`
+
+**Why this model?**
+- Matches astronomy education UX (NASA Eyes, Celestia)
+- Provides constant context ("where am I?")
+- Works from planets (AU scale) to galaxies (Mpc scale)
+
+## Realistic Sky Recipe (100k Stars + Landmarks)
+
+To build a production-quality dataset with real Gaia stars and 100+ landmarks:
+
+### 1. Build Universe Dataset
+```bash
+# Download Gaia stars (or use your own catalog)
+# Example: Top 100k brightest stars with magnitude < 8
+curl -G "https://gea.esac.esa.int/tap-server/tap/sync" \
+  --data-urlencode "REQUEST=doQuery" \
+  --data-urlencode "LANG=ADQL" \
+  --data-urlencode "FORMAT=csv" \
+  --data-urlencode "QUERY=SELECT TOP 100000 source_id,ra,dec,parallax,phot_g_mean_mag,bp_rp FROM gaiadr3.gaia_source WHERE phot_g_mean_mag < 8 AND parallax > 0 ORDER BY phot_g_mean_mag" \
+  -o data/gaia_100k.csv
+
+# Build universe (stars + planets + landmarks if landmarks.json exists)
+cargo run --release -p universe-cli -- build \
+  --stars data/gaia_100k.csv \
+  --limit 100000 \
+  --max-mag 8.0 \
+  --output universe
+```
+
+### 2. (Optional) Export Built-in Landmarks
+The client includes 100+ curated landmarks. To include them in the dataset as visible splats:
+
+```bash
+# Export TypeScript landmarks to JSON (requires Node.js script or manual export)
+# See client/src/landmarks.ts → universe/landmarks.json
+
+# Rebuild to ingest landmarks
+cargo run --release -p universe-cli -- build \
+  --stars data/gaia_100k.csv \
+  --limit 100000 \
+  --output universe
+```
+
+### 3. Pack Cells for Fast Loading
+```bash
+cargo run --release -p universe-cli -- pack \
+  --universe universe \
+  --output universe/cells.pack.bin
+```
+
+### 4. (Optional) Train Landmark Neighborhoods
+Instead of training the entire universe (impractical), train only cells near landmarks:
+
+```bash
+cargo run --release -p universe-cli -- train-landmarks \
+  --input universe \
+  --output universe_trained \
+  --landmarks universe/landmarks.json \
+  --neighbors 2 \
+  --iterations 500 \
+  --backend wgpu
+```
+
+This trains only the ~100-300 cells containing landmarks + 2-shell neighborhood, avoiding hours of computation.
+
+### 5. Run Client
+```bash
+cd client
+npm install
+npm run dev
+```
+
+Visit `http://localhost:3000` and search for "Andromeda", "Orion Nebula", or "M13" to explore!
+
 ## Runtime Requirements
 
 **Production (recommended):**

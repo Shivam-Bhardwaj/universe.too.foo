@@ -159,6 +159,86 @@ impl DataPipeline {
         Ok(manifest)
     }
 
+    /// Ingest landmarks (galaxies, nebulae, clusters, etc.) into HLG cells
+    pub fn ingest_landmarks(&self, landmarks: &[crate::landmarks::Landmark], output_dir: &Path) -> Result<CellManifest> {
+        tracing::info!("Ingesting {} landmarks", landmarks.len());
+
+        let cells_dir = output_dir.join("cells");
+        std::fs::create_dir_all(&cells_dir)?;
+
+        let mut manifest = CellManifest::new(self.config.grid_config.clone());
+        let r_min = self.config.grid_config.r_min;
+
+        for landmark in landmarks {
+            // Skip objects inside R_MIN (Sun is procedural, no need to include as splat)
+            if landmark.distance() < r_min {
+                tracing::debug!("Skipping landmark '{}' (inside R_MIN)", landmark.name);
+                continue;
+            }
+
+            // Convert landmark to cell + splat
+            if let Some((cell_id, splat)) = self.process_landmark(landmark) {
+                let path = cells_dir.join(cell_id.file_name());
+
+                // Load existing cell if present, or create new one
+                let mut cell = if path.exists() {
+                    CellData::load(&path)?
+                } else {
+                    let bounds = self.grid.cell_to_bounds(cell_id);
+                    CellData::new(cell_id, bounds)
+                };
+
+                cell.add_splat(splat);
+                cell.save(&path)?;
+
+                // Update manifest
+                manifest.add_cell(CellEntry {
+                    id: cell_id,
+                    file_name: cell_id.file_name(),
+                    splat_count: cell.metadata.splat_count,
+                    file_size_bytes: std::fs::metadata(&path)?.len(),
+                });
+
+                tracing::info!("Landmark '{}': Cell ({},{},{})",
+                    landmark.name, cell_id.l, cell_id.theta, cell_id.phi);
+            } else {
+                tracing::warn!("Failed to process landmark '{}'", landmark.name);
+            }
+        }
+
+        tracing::info!("Landmark ingestion complete: {} cells, {} splats",
+            manifest.cells.len(), manifest.total_splats);
+
+        Ok(manifest)
+    }
+
+    fn process_landmark(&self, landmark: &crate::landmarks::Landmark) -> Option<(CellId, GaussianSplat)> {
+        use universe_core::coordinates::CartesianPosition;
+
+        let pos = CartesianPosition {
+            x: landmark.pos_meters.x,
+            y: landmark.pos_meters.y,
+            z: landmark.pos_meters.z,
+        };
+
+        let cell_id = self.grid.cartesian_to_cell(pos)?;
+        let bounds = self.grid.cell_to_bounds(cell_id);
+
+        let visual_radius = landmark.visual_radius() as f32;
+        let (color, opacity) = landmark.visual_appearance();
+
+        let splat = GaussianSplat::sphere(
+            [(pos.x - bounds.centroid.x) as f32,
+             (pos.y - bounds.centroid.y) as f32,
+             (pos.z - bounds.centroid.z) as f32],
+            visual_radius,
+            color,
+            opacity,
+        );
+
+        Some((cell_id, splat))
+    }
+
     fn process_star(&self, star: &StarRecord) -> Option<(CellId, GaussianSplat)> {
         let pos = star.to_cartesian()?;
         let cell_id = self.grid.cartesian_to_cell(pos)?;

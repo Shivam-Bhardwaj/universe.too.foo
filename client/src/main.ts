@@ -126,6 +126,8 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
             video.width = w;
             video.height = h;
         }
+        // Update max local distance based on viewport height (anchor bubble constraint)
+        camera.updateMaxLocalDistance(rect.height);
     };
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
@@ -136,6 +138,12 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     camera.origin = { ...camera.position };
     const input = new LocalInputHandler(camera);
     const flightControls = input.getFlightControls();
+
+    // Set up jump complete callback to switch navigation anchor
+    flightControls.setJumpCompleteCallback((targetId, targetName, targetPos) => {
+        camera.setAnchor(targetId, targetName, targetPos);
+        console.log(`[ANCHOR] Switched to ${targetName} (${targetId})`);
+    });
 
     // Time controller for ±100,000 year time travel
     const timeController = new ClientTimeController(J2000_JD);
@@ -151,7 +159,7 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     video.style.outline = 'none';
 
     // Targeting state (updated later once solar bodies exist)
-    type TargetableBody = { name: string; pos: [number, number, number]; radius_m: number };
+    type TargetableBody = { id: string; name: string; pos: [number, number, number]; radius_m: number };
     let targetBody: TargetableBody | null = null;
     let pickBodies: TargetableBody[] = [];
 
@@ -279,9 +287,12 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
             teleportToBodyCenter(picked);
         } else {
             // Single click: start jump to target
+            const targetPos = { x: picked.pos[0], y: picked.pos[1], z: picked.pos[2] };
+            prefetchTargetCells(targetPos);
             flightControls.startJump(
-                { x: picked.pos[0], y: picked.pos[1], z: picked.pos[2] },
+                targetPos,
                 picked.name,
+                picked.id,
                 picked.radius_m,
             );
         }
@@ -402,9 +413,12 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
                             teleportToBodyCenter(picked);
                         } else if (dtMs <= TAP_TIME_MS) {
                             // Tap: start jump to target
+                            const targetPos = { x: picked.pos[0], y: picked.pos[1], z: picked.pos[2] };
+                            prefetchTargetCells(targetPos);
                             flightControls.startJump(
-                                { x: picked.pos[0], y: picked.pos[1], z: picked.pos[2] },
+                                targetPos,
                                 picked.name,
+                                picked.id,
                                 picked.radius_m,
                             );
                         }
@@ -592,7 +606,7 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
 
     // For large manifests, don't load the first N entries (which is effectively arbitrary).
     // Instead, prioritize cells closest to the current camera position.
-    const selectEntriesByDistance = (pos: { x: number; y: number; z: number }) => {
+    const cellCenter = (id: { l: number; theta: number; phi: number }) => {
         const cfg = manifest.config;
         const thetaStep = (Math.PI * 2) / cfg.n_theta;
         const phiStep = Math.PI / cfg.n_phi;
@@ -600,20 +614,20 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         const rInner = (l: number) => cfg.r_min * Math.pow(cfg.log_base, l);
         const rOuter = (l: number) => cfg.r_min * Math.pow(cfg.log_base, l + 1);
 
-        const cellCenter = (id: { l: number; theta: number; phi: number }) => {
-            const ri = rInner(id.l);
-            const ro = rOuter(id.l);
-            const r = Math.sqrt(ri * ro); // geometric mean (log shells)
-            const theta = -Math.PI + (id.theta + 0.5) * thetaStep;
-            const phi = (id.phi + 0.5) * phiStep;
-            const sinPhi = Math.sin(phi);
-            return {
-                x: r * sinPhi * Math.cos(theta),
-                y: r * sinPhi * Math.sin(theta),
-                z: r * Math.cos(phi),
-            };
+        const ri = rInner(id.l);
+        const ro = rOuter(id.l);
+        const r = Math.sqrt(ri * ro); // geometric mean (log shells)
+        const theta = -Math.PI + (id.theta + 0.5) * thetaStep;
+        const phi = (id.phi + 0.5) * phiStep;
+        const sinPhi = Math.sin(phi);
+        return {
+            x: r * sinPhi * Math.cos(theta),
+            y: r * sinPhi * Math.sin(theta),
+            z: r * Math.cos(phi),
         };
+    };
 
+    const selectEntriesByDistance = (pos: { x: number; y: number; z: number }) => {
         const scored: Array<{ e: (typeof manifest.cells)[number]; d2: number }> = manifest.cells.map((e) => {
             const c = cellCenter(e.id);
             const dx = c.x - pos.x;
@@ -702,6 +716,32 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         return out;
     };
 
+    /**
+     * Prefetch cells near a target position (for jumps).
+     * Enqueues the closest N cells to reduce buffering during jump arrival.
+     */
+    const prefetchTargetCells = (targetPos: { x: number; y: number; z: number }, prefetchCount: number = 20) => {
+        const scored: Array<{ e: (typeof manifest.cells)[number]; d2: number }> = manifest.cells.map((e) => {
+            const c = cellCenter(e.id);
+            const dx = c.x - targetPos.x;
+            const dy = c.y - targetPos.y;
+            const dz = c.z - targetPos.z;
+            return { e, d2: dx * dx + dy * dy + dz * dz };
+        });
+
+        scored.sort((a, b) => a.d2 - b.d2);
+
+        // Enqueue the closest cells
+        const toEnqueue = scored.slice(0, prefetchCount);
+        for (const { e } of toEnqueue) {
+            if (!loaded.has(e.file_name) && !inflight.has(e.file_name)) {
+                enqueue(e.file_name);
+            }
+        }
+
+        console.log(`[PREFETCH] Enqueued ${toEnqueue.length} cells near target`);
+    };
+
     // -------------------------------------------------------------------------
     // Solar system overlay (procedural)
     // Dataset mode is primarily the starfield dataset. We also add a tiny set of
@@ -718,6 +758,7 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         return `${km.toLocaleString()} km`;
     };
     type SolarBody = {
+        id: string;
         name: string;
         pos: [number, number, number];
         radius_m: number;
@@ -729,22 +770,22 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     // This is just a visual reference layer; later we can drive this from ephemeris.
     const solarBodies: SolarBody[] = [
         // Make the Sun a bit larger than physical so it's obvious at 1 AU.
-        { name: 'Sun', pos: [0, 0, 0], radius_m: 6.9634e8 * 4.0, color: [1.0, 0.95, 0.85], opacity: 1.0 },
-        { name: 'Mercury', pos: [0.39 * AU_M, 0, 0], radius_m: 2.4397e6, color: [0.70, 0.70, 0.70], opacity: 1.0 },
-        { name: 'Venus', pos: [0.72 * AU_M, 0, 0], radius_m: 6.0518e6, color: [0.95, 0.88, 0.70], opacity: 1.0 },
-        { name: 'Earth', pos: [1.0 * AU_M, 0, 0], radius_m: 6.371e6, color: [0.20, 0.55, 1.00], opacity: 1.0 },
-        { name: 'Mars', pos: [1.52 * AU_M, 0, 0], radius_m: 3.3895e6, color: [1.00, 0.45, 0.25], opacity: 1.0 },
-        { name: 'Jupiter', pos: [5.2 * AU_M, 0, 0], radius_m: 6.9911e7, color: [0.92, 0.84, 0.72], opacity: 1.0 },
-        { name: 'Saturn', pos: [9.5 * AU_M, 0, 0], radius_m: 5.8232e7, color: [0.92, 0.86, 0.68], opacity: 1.0 },
-        { name: 'Uranus', pos: [19.2 * AU_M, 0, 0], radius_m: 2.5362e7, color: [0.62, 0.86, 0.92], opacity: 1.0 },
-        { name: 'Neptune', pos: [30.0 * AU_M, 0, 0], radius_m: 2.4622e7, color: [0.34, 0.55, 0.98], opacity: 1.0 },
+        { id: 'sun', name: 'Sun', pos: [0, 0, 0], radius_m: 6.9634e8 * 4.0, color: [1.0, 0.95, 0.85], opacity: 1.0 },
+        { id: 'mercury', name: 'Mercury', pos: [0.39 * AU_M, 0, 0], radius_m: 2.4397e6, color: [0.70, 0.70, 0.70], opacity: 1.0 },
+        { id: 'venus', name: 'Venus', pos: [0.72 * AU_M, 0, 0], radius_m: 6.0518e6, color: [0.95, 0.88, 0.70], opacity: 1.0 },
+        { id: 'earth', name: 'Earth', pos: [1.0 * AU_M, 0, 0], radius_m: 6.371e6, color: [0.20, 0.55, 1.00], opacity: 1.0 },
+        { id: 'mars', name: 'Mars', pos: [1.52 * AU_M, 0, 0], radius_m: 3.3895e6, color: [1.00, 0.45, 0.25], opacity: 1.0 },
+        { id: 'jupiter', name: 'Jupiter', pos: [5.2 * AU_M, 0, 0], radius_m: 6.9911e7, color: [0.92, 0.84, 0.72], opacity: 1.0 },
+        { id: 'saturn', name: 'Saturn', pos: [9.5 * AU_M, 0, 0], radius_m: 5.8232e7, color: [0.92, 0.86, 0.68], opacity: 1.0 },
+        { id: 'uranus', name: 'Uranus', pos: [19.2 * AU_M, 0, 0], radius_m: 2.5362e7, color: [0.62, 0.86, 0.92], opacity: 1.0 },
+        { id: 'neptune', name: 'Neptune', pos: [30.0 * AU_M, 0, 0], radius_m: 2.4622e7, color: [0.34, 0.55, 0.98], opacity: 1.0 },
 
         // Spacecraft (scaled up for visibility - actual size ~10m)
-        { name: 'Voyager 1', pos: [1.7e13, 5.2e12, 2.9e12], radius_m: 1e7, color: [0.9, 0.9, 1.0], opacity: 0.9 },
-        { name: 'Voyager 2', pos: [1.4e13, -1.1e13, -8.3e12], radius_m: 1e7, color: [0.9, 0.9, 1.0], opacity: 0.9 },
-        { name: 'New Horizons', pos: [-8.7e12, -2.0e12, -3.0e12], radius_m: 1e7, color: [1.0, 1.0, 0.9], opacity: 0.85 },
-        { name: 'JWST', pos: [1.511e11, 0, 0], radius_m: 1e6, color: [1.0, 0.85, 0.6], opacity: 0.8 },
-        { name: 'Parker', pos: [6.0e10, 0, 0], radius_m: 5e5, color: [1.0, 0.5, 0.2], opacity: 0.75 },
+        { id: 'voyager-1', name: 'Voyager 1', pos: [1.7e13, 5.2e12, 2.9e12], radius_m: 1e7, color: [0.9, 0.9, 1.0], opacity: 0.9 },
+        { id: 'voyager-2', name: 'Voyager 2', pos: [1.4e13, -1.1e13, -8.3e12], radius_m: 1e7, color: [0.9, 0.9, 1.0], opacity: 0.9 },
+        { id: 'new-horizons', name: 'New Horizons', pos: [-8.7e12, -2.0e12, -3.0e12], radius_m: 1e7, color: [1.0, 1.0, 0.9], opacity: 0.85 },
+        { id: 'jwst', name: 'JWST', pos: [1.511e11, 0, 0], radius_m: 1e6, color: [1.0, 0.85, 0.6], opacity: 0.8 },
+        { id: 'parker-solar-probe', name: 'Parker', pos: [6.0e10, 0, 0], radius_m: 5e5, color: [1.0, 0.5, 0.2], opacity: 0.75 },
     ];
 
     const solarSplats = solarBodies.length;
@@ -889,9 +930,11 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
                 if (!landmark) return;
 
                 // Jump to landmark
+                prefetchTargetCells(landmark.pos_meters);
                 flightControls.startJump(
                     landmark.pos_meters,
                     landmark.name,
+                    landmark.id,
                     landmark.radius_hint || 1e9
                 );
 
@@ -1353,35 +1396,24 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         );
         if (navDistSunEl) navDistSunEl.textContent = `${(distSunM / AU_M).toFixed(2)} AU`;
 
-        // Update location breadcrumb
+        // Update location breadcrumb (NASA Eyes-style: show current anchor + distance)
         if (locationContextEl) {
-            const regime = determineRegime(distSunM);
-            const distFormatted = formatDistance(distSunM);
+            const distFromAnchor = camera.getDistanceFromAnchor();
+            const distFromAnchorFormatted = formatDistance(distFromAnchor);
+            const distSunFormatted = formatDistance(distSunM);
 
-            // Find nearest landmark
-            const nearest = landmarks?.findNearest(camera.position, 1)[0];
-            const nearestName = nearest ? nearest.landmark.name : 'Unknown';
-            const nearestDist = nearest ? formatDistance(nearest.distance) : '';
+            let breadcrumb = `<span class="location-primary">${camera.anchorName}</span>`;
 
-            let breadcrumb = '';
-            switch (regime) {
-                case ScaleRegime.Planetary:
-                case ScaleRegime.SolarSystem:
-                    breadcrumb = `<span class="location-primary">${nearestName}</span>`;
-                    if (nearest && nearest.distance > 0) {
-                        breadcrumb += ` <span class="location-sep">•</span> ${nearestDist}`;
-                    }
-                    break;
-                case ScaleRegime.Interstellar:
-                    breadcrumb = `<span class="location-primary">Local Stellar Neighborhood</span> <span class="location-sep">•</span> ${distFormatted} from Sun`;
-                    break;
-                case ScaleRegime.Galactic:
-                    breadcrumb = `<span class="location-primary">Milky Way</span> <span class="location-sep">•</span> ${distFormatted} from Sun`;
-                    break;
-                case ScaleRegime.Intergalactic:
-                    breadcrumb = `<span class="location-primary">Local Group</span> <span class="location-sep">•</span> ${distFormatted} from Milky Way`;
-                    break;
+            // Show distance from anchor if not at center
+            if (distFromAnchor > 1e6) {  // > 1000 km
+                breadcrumb += ` <span class="location-sep">•</span> ${distFromAnchorFormatted}`;
             }
+
+            // Secondary: distance to Sun (if anchor is not Sun)
+            if (camera.anchorId !== 'sun' && distSunM > 1e9) {  // > 1 Gm
+                breadcrumb += ` <span class="location-sep">•</span> ${distSunFormatted} from Sun`;
+            }
+
             locationContextEl.innerHTML = breadcrumb;
         }
 

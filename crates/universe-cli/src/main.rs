@@ -216,6 +216,28 @@ enum Commands {
         backend: String,
     },
 
+    /// Train only cells near landmarks (selective training)
+    TrainLandmarks {
+        /// Input universe directory
+        #[arg(short, long, default_value = "universe")]
+        input: PathBuf,
+        /// Output directory for trained cells
+        #[arg(short, long, default_value = "trained")]
+        output: PathBuf,
+        /// Landmarks file
+        #[arg(short, long, default_value = "universe/landmarks.json")]
+        landmarks: PathBuf,
+        /// Expand selection by N neighbor cells (in l/theta/phi directions)
+        #[arg(short, long, default_value = "1")]
+        neighbors: usize,
+        /// Training iterations per cell
+        #[arg(long, default_value = "500")]
+        iterations: usize,
+        /// Training backend: wgpu, torch-cuda, torch-cpu
+        #[arg(long, default_value = "wgpu")]
+        backend: String,
+    },
+
     /// Generate landmarks.json from dataset (brightest/highest quality stars)
     GenerateLandmarks {
         /// Universe directory (contains index.json)
@@ -437,9 +459,22 @@ async fn main() -> Result<()> {
             let eph = universe_data::EphemerisProvider::load_default(&ephemeris_dir)?;
             let planet_man = pipe.generate_planets(&eph, epoch, &output)?;
 
+            // Landmarks (optional - load if landmarks.json exists in output dir)
+            let landmarks_path = output.join("landmarks.json");
+            let landmark_man = if landmarks_path.exists() {
+                println!("Loading landmarks from {:?}", landmarks_path);
+                let landmarks = universe_data::load_landmarks_json(&landmarks_path)?;
+                println!("Ingesting {} landmarks", landmarks.len());
+                Some(pipe.ingest_landmarks(&landmarks, &output)?)
+            } else {
+                println!("No landmarks.json found, skipping landmark ingestion");
+                None
+            };
+
             // Merge
             let mut all = vec![planet_man];
             if let Some(m) = star_man { all.push(m); }
+            if let Some(m) = landmark_man { all.push(m); }
             let final_man = universe_data::merge_manifests(all)?;
             final_man.save(&output.join("index.json"))?;
 
@@ -695,6 +730,116 @@ async fn main() -> Result<()> {
                     anyhow::bail!("Unknown backend '{}'. Use: wgpu, torch-cuda, torch-cpu", backend);
                 }
             }
+        }
+
+        Commands::TrainLandmarks { input, output, landmarks, neighbors, iterations, backend } => {
+            use std::collections::HashSet;
+            use universe_core::grid::{HLGGrid, CellId};
+            use universe_core::coordinates::CartesianPosition;
+
+            println!("Loading landmarks from {:?}", landmarks);
+            let landmark_list = universe_data::load_landmarks_json(&landmarks)?;
+            println!("Loaded {} landmarks", landmark_list.len());
+
+            // Load manifest to get HLG config and existing cells
+            let manifest_path = input.join("index.json");
+            let manifest = universe_data::CellManifest::load(&manifest_path)?;
+            let grid = HLGGrid::new(manifest.config.clone());
+
+            println!("Universe has {} cells total", manifest.cells.len());
+
+            // Find cells containing landmarks
+            let mut selected_cells = HashSet::new();
+            for landmark in &landmark_list {
+                let pos = CartesianPosition {
+                    x: landmark.pos_meters.x,
+                    y: landmark.pos_meters.y,
+                    z: landmark.pos_meters.z,
+                };
+
+                if let Some(cell_id) = grid.cartesian_to_cell(pos) {
+                    selected_cells.insert(cell_id);
+                }
+            }
+
+            println!("Found {} cells containing landmarks", selected_cells.len());
+
+            // Expand selection by neighbors
+            if neighbors > 0 {
+                let mut expanded = selected_cells.clone();
+                for &cell_id in &selected_cells {
+                    // Expand in l (radial), theta (azimuth), phi (polar) directions
+                    for dl in -(neighbors as i32)..=(neighbors as i32) {
+                        for dtheta in -(neighbors as i32)..=(neighbors as i32) {
+                            for dphi in -(neighbors as i32)..=(neighbors as i32) {
+                                let new_l = (cell_id.l as i32 + dl).max(0) as usize;
+                                let new_theta = (cell_id.theta as i32 + dtheta).rem_euclid(manifest.config.n_theta as i32) as usize;
+                                let new_phi = (cell_id.phi as i32 + dphi).clamp(0, (manifest.config.n_phi - 1) as i32) as usize;
+
+                                let neighbor = CellId {
+                                    l: new_l as u32,
+                                    theta: new_theta as u32,
+                                    phi: new_phi as u32,
+                                };
+
+                                // Only add if cell exists in manifest
+                                if manifest.cells.iter().any(|e| e.id == neighbor) {
+                                    expanded.insert(neighbor);
+                                }
+                            }
+                        }
+                    }
+                }
+                println!("Expanded to {} cells (neighbors={})", expanded.len(), neighbors);
+                selected_cells = expanded;
+            }
+
+            // Filter to only cells that exist in the manifest
+            let cells_to_train: Vec<_> = manifest.cells.iter()
+                .filter(|e| selected_cells.contains(&e.id))
+                .cloned()
+                .collect();
+
+            println!("Training {} cells (out of {} total)", cells_to_train.len(), manifest.cells.len());
+
+            // Train selected cells
+            let config = universe_train::TrainConfig {
+                iterations,
+                ..Default::default()
+            };
+
+            match backend.as_str() {
+                "wgpu" => {
+                    use burn_autodiff::Autodiff;
+                    use burn_wgpu::{Wgpu, WgpuDevice};
+
+                    type Backend = Autodiff<Wgpu>;
+                    let device = WgpuDevice::default();
+
+                    universe_train::train_selected_cells::<Backend>(&input, &output, &cells_to_train, config, device)?;
+                }
+                #[cfg(feature = "torch")]
+                "torch-cuda" | "torch-cpu" => {
+                    use universe_train::torch_backend::{train_selected_cells, TorchDevice};
+
+                    let device = if backend == "torch-cuda" {
+                        TorchDevice::cuda_if_available()
+                    } else {
+                        TorchDevice::Cpu
+                    };
+
+                    train_selected_cells(&input, &output, &cells_to_train, config, device)?;
+                }
+                #[cfg(not(feature = "torch"))]
+                "torch-cuda" | "torch-cpu" => {
+                    anyhow::bail!("Torch backend not available. Rebuild with --features torch");
+                }
+                _ => {
+                    anyhow::bail!("Unknown backend '{}'. Use: wgpu, torch-cuda, torch-cpu", backend);
+                }
+            }
+
+            println!("Landmark-focused training complete!");
         }
 
         Commands::GenerateLandmarks { universe, stars, count, output, method } => {
