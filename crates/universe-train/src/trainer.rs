@@ -8,7 +8,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::camera::{generate_training_cameras, Camera};
 use crate::ground_truth::GroundTruthRenderer;
-use crate::loss::combined_loss;
+use crate::loss::{combined_loss, full_loss_with_regularization};
 use crate::model::GaussianCloud;
 use crate::rasterizer::{render_gaussians, RasterizerConfig};
 
@@ -28,6 +28,28 @@ pub struct TrainConfig {
     pub prune_opacity_threshold: f32,
     pub grad_threshold_position: f32,
     pub log_interval: usize,
+    /// Number of cells to train in parallel (for GPU batching)
+    pub batch_cells: usize,
+    /// Scale threshold for deciding clone vs split during densification
+    /// Splats with max scale < threshold are cloned, >= are split
+    pub split_scale_threshold: f32,
+
+    // === 3D Geometry Regularization (prevents Z-collapse) ===
+
+    /// Weight for isotropy regularization (penalizes non-spherical splats)
+    /// For stars (point sources), this encourages equal scales on all axes.
+    /// Typical values: 0.01-0.1 (higher = more spherical)
+    pub lambda_isotropy: f32,
+
+    /// Weight for scale collapse prevention (penalizes axis shrinkage)
+    /// Prevents any axis from collapsing to near-zero relative to others.
+    /// Typical values: 0.05-0.2 (higher = stricter enforcement)
+    pub lambda_collapse: f32,
+
+    /// Minimum allowed ratio of min_scale/max_scale per splat
+    /// Below this ratio, collapse loss is applied.
+    /// 0.1 means smallest axis must be at least 10% of largest.
+    pub min_scale_ratio: f32,
 }
 
 impl Default for TrainConfig {
@@ -43,6 +65,12 @@ impl Default for TrainConfig {
             prune_opacity_threshold: 0.01,
             grad_threshold_position: 0.0001,
             log_interval: 50,
+            batch_cells: 1,
+            split_scale_threshold: 0.01,
+            // 3D regularization defaults (tuned for astronomical point sources)
+            lambda_isotropy: 0.05,   // Encourage spherical splats
+            lambda_collapse: 0.1,    // Prevent Z-collapse
+            min_scale_ratio: 0.1,    // Min axis >= 10% of max
         }
     }
 }
@@ -150,8 +178,17 @@ impl<B: AutodiffBackend> Trainer<B> {
                     &raster_config,
                 );
 
-                // Compute loss
-                let loss = combined_loss(rendered, gt_tensor, self.config.lambda_dssim);
+                // Compute loss with 3D geometry regularization to prevent Z-collapse
+                let (loss, _loss_components) = full_loss_with_regularization(
+                    rendered,
+                    gt_tensor,
+                    model.scales(),
+                    model.log_scales.val(),
+                    self.config.lambda_dssim,
+                    self.config.lambda_isotropy,
+                    self.config.lambda_collapse,
+                    self.config.min_scale_ratio,
+                );
                 let loss_val = loss.clone().into_scalar().elem::<f32>();
                 total_loss += loss_val;
 
@@ -320,6 +357,8 @@ mod tests {
             prune_opacity_threshold: 0.01,
             grad_threshold_position: 0.0001,
             log_interval: 10,
+            batch_cells: 1,
+            split_scale_threshold: 0.01,
         };
 
         // Create simple scene: 3 Gaussians at different positions

@@ -5,9 +5,10 @@ import { fetchCell, fetchManifest, fetchPackIndex, parseCell } from './dataset';
 import { LocalCamera } from './camera';
 import { WebGpuSplatRenderer } from './webgpu_splats';
 import { WebGlSplatRenderer } from './webgl_splats';
+import { MinimapRenderer } from './minimap_renderer';
+import { LabelRenderer, type LabeledObject } from './label_renderer';
 import { detectRuntime, getRuntimeErrorMessage } from './runtime';
 import { LandmarksManager } from './landmarks';
-import { determineRegime, ScaleRegime } from './scale_system';
 import { ClientTimeController, J2000_JD } from './time_controller';
 import { estimateStellarVelocity, propagateStarFull } from './stellar_motion';
 import { generateOortCloudViewBiased, type ProceduralObject } from './procedural_oort';
@@ -116,6 +117,19 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
           })()
         : null;
 
+    // Local camera + input
+    const camera = new LocalCamera();
+    // Initialize floating origin at the camera start position for precision.
+    camera.origin = { ...camera.position };
+    const input = new LocalInputHandler(camera);
+    const flightControls = input.getFlightControls();
+
+    // Set up jump complete callback to switch navigation anchor
+    flightControls.setJumpCompleteCallback((targetId, targetName, targetPos) => {
+        camera.setAnchor(targetId, targetName, targetPos);
+        console.log(`[ANCHOR] Switched to ${targetName} (${targetId})`);
+    });
+
     // Canvas sizing
     const dpr = window.devicePixelRatio || 1;
     const resizeCanvas = () => {
@@ -131,19 +145,6 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     };
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
-
-    // Local camera + input
-    const camera = new LocalCamera();
-    // Initialize floating origin at the camera start position for precision.
-    camera.origin = { ...camera.position };
-    const input = new LocalInputHandler(camera);
-    const flightControls = input.getFlightControls();
-
-    // Set up jump complete callback to switch navigation anchor
-    flightControls.setJumpCompleteCallback((targetId, targetName, targetPos) => {
-        camera.setAnchor(targetId, targetName, targetPos);
-        console.log(`[ANCHOR] Switched to ${targetName} (${targetId})`);
-    });
 
     // Time controller for ±100,000 year time travel
     const timeController = new ClientTimeController(J2000_JD);
@@ -529,6 +530,21 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
                 </div>
             `;
             return false;
+        }
+    }
+
+    // Optional: GPU minimap (only if WebGPU renderer is active).
+    // If WebGPU is unavailable and we fall back to WebGL, we keep the 2D minimap path.
+    if (rendererKind === 'webgpu' && navOrbCanvas && rendererWebGpu) {
+        try {
+            // `device` is a private field on WebGpuSplatRenderer; access via escape hatch.
+            const device = (rendererWebGpu as any).device as GPUDevice | undefined;
+            if (device) {
+                minimapRenderer = new MinimapRenderer(device, navOrbCanvas);
+            }
+        } catch (e) {
+            console.warn('[MINIMAP] Failed to init WebGPU minimap, falling back to 2D minimap', e);
+            minimapRenderer = null;
         }
     }
 
@@ -960,6 +976,23 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     const navOrbEl = document.getElementById('nav-orb') as HTMLDivElement | null;
     const navOrbCanvas = document.getElementById('nav-orb-canvas') as HTMLCanvasElement | null;
     const navOrbCtx = navOrbCanvas ? (navOrbCanvas.getContext('2d') as CanvasRenderingContext2D | null) : null;
+    // WebGPU minimap renderer (optional). Must always be defined so other closures can reference it safely.
+    let minimapRenderer: MinimapRenderer | null = null;
+
+    // Label renderer for billboard object labels
+    const labelCanvas = document.getElementById('object-labels') as HTMLCanvasElement | null;
+    let labelRenderer: LabelRenderer | null = null;
+    if (labelCanvas) {
+        labelRenderer = new LabelRenderer(labelCanvas, {
+            maxDistance: 1e14,  // ~670 AU (show solar system + nearby stars)
+            fontSize: 13,
+            fontFamily: 'monospace',
+            textColor: 'rgba(255, 255, 255, 0.95)',
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            padding: 4,
+            minScreenDistance: 60,
+        });
+    }
 
     const resizeCompass = () => {
         if (!compassCanvas || !compassCtx) return;
@@ -974,6 +1007,17 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     };
     window.addEventListener('resize', resizeCompass);
     resizeCompass();
+
+    const resizeLabels = () => {
+        if (!labelCanvas || !labelRenderer) return;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        if (labelCanvas.width !== w || labelCanvas.height !== h) {
+            labelRenderer.resize(w, h);
+        }
+    };
+    window.addEventListener('resize', resizeLabels);
+    resizeLabels();
 
     const resizeNavOrb = () => {
         if (!navOrbCanvas || !navOrbCtx) return;
@@ -1172,6 +1216,11 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     resizeMilkyWay();
 
     const drawNavOrb = () => {
+        if (minimapRenderer) {
+             minimapRenderer.render();
+             return;
+        }
+
         if (!navOrbCanvas || !navOrbCtx) return;
         const ctx = navOrbCtx;
         const w = navOrbCanvas.width;
@@ -1816,6 +1865,21 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     const uploadSplats = () => {
         if (rendererKind === 'webgpu') rendererWebGpu!.setSplats(finalGpuSplats);
         else rendererWebGl!.setSplats(finalGpuSplats);
+
+        // Update minimap if available
+        if (minimapRenderer && finalGpuSplats.length > 0) {
+            // Compute heliosphere bounds (approximate)
+            // Or use fixed bounds: ±120 AU
+            const AU = 1.496e11;
+            const size = 240 * AU;
+            const min = -120 * AU;
+            
+            minimapRenderer.update(
+                finalGpuSplats, 
+                { minX: min, minZ: min, sizeX: size, sizeZ: size },
+                { x: camera.origin.x, z: camera.origin.z }
+            );
+        }
     };
 
     const recomputeRelativePositions = () => {
@@ -2420,6 +2484,44 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         }
 
         updateNavAndOverlays(viewProj);
+
+        // Render object labels
+        if (labelRenderer && labelCanvas) {
+            // Build list of labeled objects
+            const labeledObjects: LabeledObject[] = [];
+
+            // Add solar system bodies
+            for (const body of solarBodies) {
+                labeledObjects.push({
+                    name: body.name,
+                    type: 'Planet',
+                    position: new Float32Array(body.pos),
+                });
+            }
+
+            // Add landmarks within range
+            const allLandmarks = landmarks.getAll();
+            for (const lm of allLandmarks) {
+                labeledObjects.push({
+                    name: lm.name,
+                    type: lm.kind.charAt(0).toUpperCase() + lm.kind.slice(1),
+                    position: new Float32Array([lm.pos_meters.x, lm.pos_meters.y, lm.pos_meters.z]),
+                });
+            }
+
+            // Render labels
+            const view = camera.viewMatrix();
+            const proj = camera.projectionMatrix(video.width / video.height);
+            const camPos = camera.position;
+            labelRenderer.render(
+                labeledObjects,
+                new Float32Array([camPos.x, camPos.y, camPos.z]),
+                view,
+                proj,
+                labelCanvas.width,
+                labelCanvas.height
+            );
+        }
 
         // Draw warp streaks during jumps
         const jumpState = flightControls.getJumpState();

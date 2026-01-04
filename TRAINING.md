@@ -42,9 +42,9 @@ cargo run --release -p universe-cli -- train-cell \
     --output trained_cell.bin
 ```
 
-## Selective Training (Landmark-Focused)
+## Selective Training (Landmark-Focused) ⭐ Recommended for Production
 
-For realistic datasets with 100k+ stars, training **all cells** is impractical (thousands of cells, 10-50 GPU-hours). Instead, use **landmark-focused training** to train only cells containing notable objects:
+For realistic datasets with 100k+ stars, training **all cells** is impractical (thousands of cells, 10-50 GPU-hours). Instead, use **landmark-focused training** to train only cells containing notable objects (galaxies, nebulae, star clusters, planets, spacecraft).
 
 ### Why Selective Training?
 
@@ -156,6 +156,27 @@ The `train-landmarks` command:
 | `--densify-interval` | 100 | Steps between densification (not yet implemented) |
 | `--densify-until` | 800 | Stop densification after this iteration |
 | `--prune-opacity-threshold` | 0.01 | Minimum opacity to keep splat (not yet implemented) |
+
+### 3D Geometry Regularization (Prevents Z-Collapse)
+
+These parameters prevent the "flat sheet" problem where splats collapse to 2D billboards during training:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--lambda-isotropy` | 0.05 | Weight for isotropy loss (encourages spherical splats) |
+| `--lambda-collapse` | 0.1 | Weight for collapse prevention loss |
+| `--min-scale-ratio` | 0.1 | Minimum ratio of smallest/largest scale axis |
+
+**Why these matter:**
+- For astronomical point sources (stars), splats should be spherical
+- Without regularization, the 2D image loss allows Z-axis to collapse
+- `lambda-isotropy` penalizes variance between scale axes (encourages equal scales)
+- `lambda-collapse` penalizes any axis shrinking below 10% of the largest axis
+
+**Tuning tips:**
+- Increase `lambda-isotropy` (0.1-0.2) if splats appear flat/elliptical
+- Increase `lambda-collapse` (0.2-0.5) if Z-collapse still occurs
+- Decrease `min-scale-ratio` (0.05) for extended objects like galaxies
 
 ## Expected Results
 

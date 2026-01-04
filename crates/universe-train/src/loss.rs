@@ -1,4 +1,6 @@
 //! Loss functions for Gaussian Splatting training
+//!
+//! Includes 3D geometry regularization to prevent Z-collapse during training.
 
 use burn::prelude::*;
 use burn::tensor::Tensor;
@@ -13,6 +15,103 @@ pub fn combined_loss<B: Backend>(
     let dssim = dssim_loss(rendered, target);
 
     l1 + dssim * lambda_dssim
+}
+
+/// Full loss with 3D geometry regularization to prevent Z-collapse
+///
+/// For astronomical point sources (stars), we want spherical splats.
+/// This loss adds:
+/// - Isotropy regularization: penalizes deviation from spherical shape
+/// - Collapse prevention: penalizes any axis from shrinking too small
+pub fn full_loss_with_regularization<B: Backend>(
+    rendered: Tensor<B, 3>,  // [H, W, 3]
+    target: Tensor<B, 3>,    // [H, W, 3]
+    scales: Tensor<B, 2>,    // [N, 3] - actual scale values (not log)
+    log_scales: Tensor<B, 2>, // [N, 3] - log of scale values
+    lambda_dssim: f32,
+    lambda_isotropy: f32,
+    lambda_collapse: f32,
+    min_scale_ratio: f32,
+) -> (Tensor<B, 1>, LossComponentsBurn) {
+    // Image-space losses
+    let l1 = l1_loss(rendered.clone(), target.clone());
+    let dssim = dssim_loss(rendered, target);
+    let image_loss = l1.clone() + dssim.clone() * lambda_dssim;
+
+    // 3D geometry regularization
+    let isotropy = log_scale_variance_loss(log_scales);
+    let collapse = scale_collapse_loss(scales, min_scale_ratio);
+
+    // Total loss
+    let total = image_loss
+        + isotropy.clone() * lambda_isotropy
+        + collapse.clone() * lambda_collapse;
+
+    let components = LossComponentsBurn {
+        l1: l1.clone().into_scalar().elem::<f32>(),
+        dssim: dssim.clone().into_scalar().elem::<f32>(),
+        isotropy: isotropy.clone().into_scalar().elem::<f32>(),
+        collapse: collapse.clone().into_scalar().elem::<f32>(),
+        total: total.clone().into_scalar().elem::<f32>(),
+    };
+
+    (total, components)
+}
+
+/// Isotropy regularization: penalizes deviation from spherical shape
+///
+/// For point sources like stars, all three scale values should be equal.
+/// This computes variance of log-scales across axes.
+pub fn log_scale_variance_loss<B: Backend>(log_scales: Tensor<B, 2>) -> Tensor<B, 1> {
+    // log_scales: [N, 3]
+    // Compute mean log scale per splat [N, 1]
+    let mean_log = log_scales.clone().mean_dim(1);
+
+    // Broadcast mean to [N, 3] for subtraction
+    let mean_expanded = mean_log.unsqueeze_dim(1).repeat_dim(1, 3);
+
+    // Variance from mean
+    let deviation = log_scales - mean_expanded;
+    let variance = deviation.powf_scalar(2.0).mean();
+
+    variance
+}
+
+/// Scale collapse prevention: penalizes any axis from becoming too small
+///
+/// Computes: mean(ReLU(min_ratio - min_scale/max_scale))
+pub fn scale_collapse_loss<B: Backend>(scales: Tensor<B, 2>, min_ratio: f32) -> Tensor<B, 1> {
+    // scales: [N, 3]
+    // Get min and max scale per splat
+    // min_dim(1) returns [N, 1], squeeze to [N]
+    let min_scale: Tensor<B, 1> = scales.clone().min_dim(1).squeeze();
+    let max_scale: Tensor<B, 1> = scales.max_dim(1).squeeze();
+
+    // Compute ratio with small epsilon to avoid division by zero
+    let ratio = min_scale / (max_scale + 1e-8);
+
+    // Penalize if ratio < min_ratio: ReLU(min_ratio - ratio)
+    // Use subtraction and clamp instead of Tensor::full for simplicity
+    let violation = (ratio * -1.0 + min_ratio).clamp_min(0.0);
+
+    violation.mean()
+}
+
+/// Breakdown of loss components for logging (Burn backend)
+#[derive(Debug, Clone, Copy)]
+pub struct LossComponentsBurn {
+    pub l1: f32,
+    pub dssim: f32,
+    pub isotropy: f32,
+    pub collapse: f32,
+    pub total: f32,
+}
+
+impl std::fmt::Display for LossComponentsBurn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "total={:.4} (L1={:.4} DSSIM={:.4} iso={:.4} col={:.4})",
+            self.total, self.l1, self.dssim, self.isotropy, self.collapse)
+    }
 }
 
 /// L1 (Mean Absolute Error) loss
