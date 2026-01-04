@@ -12,6 +12,7 @@ import { LandmarksManager } from './landmarks';
 import { ClientTimeController, J2000_JD } from './time_controller';
 import { estimateStellarVelocity, propagateStarFull } from './stellar_motion';
 import { generateOortCloudViewBiased, type ProceduralObject } from './procedural_oort';
+import { HELIOSPHERE_RADIUS } from './scale_system';
 
 type Dom = {
     video: HTMLCanvasElement;
@@ -507,6 +508,8 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     let rendererKind: 'webgpu' | 'webgl' = 'webgpu';
     let rendererWebGpu: WebGpuSplatRenderer | null = null;
     let rendererWebGl: WebGlSplatRenderer | null = null;
+    // Optional: WebGPU minimap (initialized after renderer is chosen).
+    let minimapRenderer: MinimapRenderer | null = null;
 
     try {
         rendererWebGpu = await WebGpuSplatRenderer.create(video);
@@ -535,12 +538,14 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
 
     // Optional: GPU minimap (only if WebGPU renderer is active).
     // If WebGPU is unavailable and we fall back to WebGL, we keep the 2D minimap path.
-    if (rendererKind === 'webgpu' && navOrbCanvas && rendererWebGpu) {
+    // NOTE: Query the canvas here to avoid referencing `navOrbCanvas` before it's declared below.
+    const navOrbCanvasEl = document.getElementById('nav-orb-canvas') as HTMLCanvasElement | null;
+    if (rendererKind === 'webgpu' && navOrbCanvasEl && rendererWebGpu) {
         try {
             // `device` is a private field on WebGpuSplatRenderer; access via escape hatch.
             const device = (rendererWebGpu as any).device as GPUDevice | undefined;
             if (device) {
-                minimapRenderer = new MinimapRenderer(device, navOrbCanvas);
+                minimapRenderer = new MinimapRenderer(device, navOrbCanvasEl);
             }
         } catch (e) {
             console.warn('[MINIMAP] Failed to init WebGPU minimap, falling back to 2D minimap', e);
@@ -976,8 +981,7 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     const navOrbEl = document.getElementById('nav-orb') as HTMLDivElement | null;
     const navOrbCanvas = document.getElementById('nav-orb-canvas') as HTMLCanvasElement | null;
     const navOrbCtx = navOrbCanvas ? (navOrbCanvas.getContext('2d') as CanvasRenderingContext2D | null) : null;
-    // WebGPU minimap renderer (optional). Must always be defined so other closures can reference it safely.
-    let minimapRenderer: MinimapRenderer | null = null;
+    // WebGPU minimap renderer (optional). Declared earlier so it can be used before this point.
 
     // Label renderer for billboard object labels
     const labelCanvas = document.getElementById('object-labels') as HTMLCanvasElement | null;
@@ -1018,6 +1022,27 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     };
     window.addEventListener('resize', resizeLabels);
     resizeLabels();
+
+    // Optional heliosphere overlay canvas (query param gated: `?heliosphere=1`)
+    const heliosphereEnabled =
+        params.get('heliosphere') === '1' ||
+        params.get('heliosphere')?.toLowerCase() === 'true';
+    const heliosphereCanvas = document.getElementById('heliosphere-canvas') as HTMLCanvasElement | null;
+    const heliosphereCtx = heliosphereCanvas ? (heliosphereCanvas.getContext('2d') as CanvasRenderingContext2D | null) : null;
+
+    const resizeHeliosphere = () => {
+        if (!heliosphereCanvas || !heliosphereCtx) return;
+        const rect = videoContainer.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const w = Math.max(1, Math.floor(rect.width * dpr));
+        const h = Math.max(1, Math.floor(rect.height * dpr));
+        if (heliosphereCanvas.width !== w || heliosphereCanvas.height !== h) {
+            heliosphereCanvas.width = w;
+            heliosphereCanvas.height = h;
+        }
+    };
+    window.addEventListener('resize', resizeHeliosphere);
+    resizeHeliosphere();
 
     const resizeNavOrb = () => {
         if (!navOrbCanvas || !navOrbCtx) return;
@@ -1767,6 +1792,76 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
 
         // --- Minimap orb ---
         drawNavOrb();
+
+        // --- Heliosphere overlay (optional) ---
+        if (heliosphereEnabled && heliosphereCanvas && heliosphereCtx) {
+            const ctx = heliosphereCtx;
+            const w = heliosphereCanvas.width;
+            const h = heliosphereCanvas.height;
+            ctx.clearRect(0, 0, w, h);
+
+            // Project a polyline approximation of the heliosphere sphere onto screen.
+            // This is a debug/UX aid; it does not occlude or depth-test.
+            const segments = 160;
+            const center = { x: 0, y: 0, z: 0 }; // Sun at origin (meters)
+
+            const pts: Array<{ x: number; y: number }> = [];
+            let visibleCount = 0;
+
+            // Pick a circle in the XZ plane (y=0) for a stable “bubble” outline.
+            // If you want a view-aligned great circle later, we can compute it from camera basis.
+            for (let i = 0; i <= segments; i++) {
+                const t = (i / segments) * Math.PI * 2;
+                const wx = center.x + HELIOSPHERE_RADIUS * Math.cos(t);
+                const wy = center.y;
+                const wz = center.z + HELIOSPHERE_RADIUS * Math.sin(t);
+
+                const rx = wx - camera.origin.x;
+                const ry = wy - camera.origin.y;
+                const rz = wz - camera.origin.z;
+
+                const clipX = viewProj[0] * rx + viewProj[4] * ry + viewProj[8] * rz + viewProj[12];
+                const clipY = viewProj[1] * rx + viewProj[5] * ry + viewProj[9] * rz + viewProj[13];
+                const clipW = viewProj[3] * rx + viewProj[7] * ry + viewProj[11] * rz + viewProj[15];
+                if (clipW <= 0) {
+                    pts.push({ x: NaN, y: NaN });
+                    continue;
+                }
+
+                const ndcX = clipX / clipW;
+                const ndcY = clipY / clipW;
+                const sx = (ndcX * 0.5 + 0.5) * w;
+                const sy = (1.0 - (ndcY * 0.5 + 0.5)) * h;
+                pts.push({ x: sx, y: sy });
+                if (ndcX >= -1.1 && ndcX <= 1.1 && ndcY >= -1.1 && ndcY <= 1.1) visibleCount++;
+            }
+
+            // Draw only if at least part of it is on screen.
+            if (visibleCount > 2) {
+                ctx.save();
+                ctx.strokeStyle = 'rgba(255, 170, 80, 0.28)';
+                ctx.lineWidth = Math.max(1, Math.round(Math.min(w, h) * 0.0025));
+                ctx.beginPath();
+                let started = false;
+                for (const p of pts) {
+                    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+                        started = false;
+                        continue;
+                    }
+                    if (!started) {
+                        ctx.moveTo(p.x, p.y);
+                        started = true;
+                    } else {
+                        ctx.lineTo(p.x, p.y);
+                    }
+                }
+                ctx.stroke();
+                ctx.restore();
+            }
+        } else if (heliosphereCanvas && heliosphereCtx) {
+            // Keep it cleared when disabled.
+            heliosphereCtx.clearRect(0, 0, heliosphereCanvas.width, heliosphereCanvas.height);
+        }
     };
 
     // ---------------------------------------------------------------------------------
@@ -1798,12 +1893,26 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
     let lastRebuildMs = 0;
     let dirtyRebuild = true;
     let hasAnyStars = false;
+    // Debug: stats for diagnosing “stars in a plane”
+    let debugStarStats:
+        | {
+              count: number;
+              min: { x: number; y: number; z: number };
+              max: { x: number; y: number; z: number };
+              range: { x: number; y: number; z: number };
+              mean: { x: number; y: number; z: number };
+              std: { x: number; y: number; z: number };
+              thicknessRatio: number; // rangeY / max(rangeX, rangeZ)
+          }
+        | null = null;
 
     const selectionMode = (params.get('select') ?? 'distance').toLowerCase();
 
     const computeTargetEntries = () => {
-        // Small datasets: load everything (fast + avoids "dark" sparse view).
-        if (smallDataset) return manifest.cells.slice(0, maxCells);
+        // Small datasets: if we can afford it, load everything (fast + avoids "dark" sparse view).
+        // IMPORTANT: If the user caps `cells`, do NOT take the first N manifest entries (unordered HashMap output);
+        // instead, keep using distance/view selection so we don't get biased/planar-looking subsets.
+        if (smallDataset && maxCells >= totalCellsInManifest) return manifest.cells;
         if (selectionMode === 'view') return selectEntriesByView(camera.position, camera.forward());
         return selectEntriesByDistance(camera.position);
     };
@@ -2053,6 +2162,64 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         finalWorldPos = worldPos;
         finalGpuSplats = gpu;
         uploadSplats();
+
+        // Update debug stats for the star subset (exclude solar bodies and Oort objects).
+        if (starCount > 0) {
+            let minX = Infinity, minY = Infinity, minZ = Infinity;
+            let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+            // Welford (per-axis)
+            let n = 0;
+            let meanX = 0, meanY = 0, meanZ = 0;
+            let m2X = 0, m2Y = 0, m2Z = 0;
+
+            for (let i = 0; i < starCount; i++) {
+                const j = i * 3;
+                const x = worldPos[j + 0];
+                const y = worldPos[j + 1];
+                const z = worldPos[j + 2];
+
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (z < minZ) minZ = z;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+                if (z > maxZ) maxZ = z;
+
+                n++;
+                const dx = x - meanX;
+                meanX += dx / n;
+                m2X += dx * (x - meanX);
+
+                const dy = y - meanY;
+                meanY += dy / n;
+                m2Y += dy * (y - meanY);
+
+                const dz = z - meanZ;
+                meanZ += dz / n;
+                m2Z += dz * (z - meanZ);
+            }
+
+            const rangeX = maxX - minX;
+            const rangeY = maxY - minY;
+            const rangeZ = maxZ - minZ;
+            const denom = Math.max(1e-9, Math.max(rangeX, rangeZ));
+            debugStarStats = {
+                count: starCount,
+                min: { x: minX, y: minY, z: minZ },
+                max: { x: maxX, y: maxY, z: maxZ },
+                range: { x: rangeX, y: rangeY, z: rangeZ },
+                mean: { x: meanX, y: meanY, z: meanZ },
+                std: {
+                    x: Math.sqrt(m2X / Math.max(1, n - 1)),
+                    y: Math.sqrt(m2Y / Math.max(1, n - 1)),
+                    z: Math.sqrt(m2Z / Math.max(1, n - 1)),
+                },
+                thicknessRatio: rangeY / denom,
+            };
+        } else {
+            debugStarStats = null;
+        }
 
         if (starCount > 0) {
             hasAnyStars = true;
@@ -2394,6 +2561,19 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         const packMode =
             packFile && packBuf ? `inline(${(packBuf.byteLength / (1024 * 1024)).toFixed(1)}MiB)` : packFile ? 'range' : 'none';
 
+        const AU_M = 1.496e11;
+        const starLine = (() => {
+            if (!debugStarStats) return `<div><b>stars</b>: (none loaded)</div>`;
+            const r = debugStarStats.range;
+            const ratio = debugStarStats.thicknessRatio;
+            const planarFlag = ratio < 1e-3 ? ' ⚠︎ planar?' : '';
+            return [
+                `<div><b>stars</b>: ${debugStarStats.count}${planarFlag}</div>`,
+                `<div><b>aabb_range(AU)</b>: x=${(r.x / AU_M).toFixed(2)} y=${(r.y / AU_M).toFixed(2)} z=${(r.z / AU_M).toFixed(2)}</div>`,
+                `<div><b>thickness</b>: y/max(x,z)=${ratio.toExponential(2)}</div>`,
+            ].join('');
+        })();
+
         debugOverlayEl.innerHTML = [
             `<div><b>renderer</b>: ${rendererKind}</div>`,
             `<div><b>cells_engine</b>: ${useWasmCells ? 'wasm' : 'ts'} (${engineParam})</div>`,
@@ -2401,6 +2581,7 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
             `<div><b>cells</b>: loaded ${loadedCells} / target ${desiredCells} (inflight ${inflightCells})</div>`,
             `<div><b>cache</b>: ${(loadedBytes / (1024 * 1024)).toFixed(1)} MiB</div>`,
             `<div><b>fps</b>: ${fpsSmoothed.toFixed(1)} · <b>dt</b>: ${(dt * 1000).toFixed(1)} ms</div>`,
+            starLine,
         ].join('');
     };
 

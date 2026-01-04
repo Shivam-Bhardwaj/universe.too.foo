@@ -35,6 +35,17 @@
             position: relative;
         }
 
+        /* Optional heliosphere overlay (debug/UX aid) */
+        #heliosphere-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 12; /* above video (2) but below labels (15+) */
+        }
+
         #milkyway-canvas {
             position: absolute;
             top: 0;
@@ -927,6 +938,7 @@
 
         <div id="overlay">
             <div id="crosshair"></div>
+            <canvas id="heliosphere-canvas"></canvas>
 
             <div id="hud">
                 <div id="hud-time">--</div>

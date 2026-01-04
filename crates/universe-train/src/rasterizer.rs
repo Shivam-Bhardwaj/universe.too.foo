@@ -58,21 +58,24 @@ pub fn render_gaussians<B: Backend>(
     // Each Gaussian contributes a fixed amount to the final image
     // This is a placeholder that ensures gradients flow but doesn't render accurately
 
-    // Average all colors weighted by opacity
+    // Average all colors weighted by opacity.
+    //
+    // NOTE: Burn's `sum_dim` keeps the reduced dimension (rank is preserved),
+    // so `sum_dim(0)` on [N,3] yields [1,3], not [3].
     let opacity_expanded = opacities.clone().unsqueeze_dim(1).repeat(&[1, 3]);
     let weighted_colors = colors.clone() * opacity_expanded;
     let total_weight = opacities.clone().sum();
 
     // Avoid division by zero
     let total_weight_safe = total_weight.clone().clamp_min(1e-6);
-    let total_weight_expanded = total_weight_safe.unsqueeze().repeat(&[3]);
+    // Expand scalar-ish [1] -> [1,3] to match `sum_dim(0)` output shape.
+    let total_weight_expanded = total_weight_safe.unsqueeze_dim(1).repeat(&[1, 3]);
+
+    // avg_color: [1,3]
     let avg_color = weighted_colors.sum_dim(0) / total_weight_expanded;
 
-    // Broadcast to image size [3] -> [1, 1, 3] -> [H, W, 3]
-    let image = avg_color
-        .unsqueeze::<2>()  // [3] -> [1, 3]
-        .unsqueeze::<3>()  // [1, 3] -> [1, 1, 3]
-        .repeat(&[h, w, 1]);
+    // Broadcast to image size: [1,3] -> [1,1,3] -> [H,W,3]
+    let image = avg_color.unsqueeze_dim(0).repeat(&[h, w, 1]);
 
     image.clamp(0.0, 1.0)
 }

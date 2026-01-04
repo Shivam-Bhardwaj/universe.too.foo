@@ -115,7 +115,25 @@ out float vOpacity;
 void main() {
     vec4 view_pos = uView * vec4(aPos, 1.0);
     float max_scale = max(aScale.x, max(aScale.y, aScale.z));
-    vec3 expanded_pos = view_pos.xyz + vec3(aQuadPos * max_scale, 0.0);
+    // Screen-space sizing (perspective, clamp angular size).
+    // Star splats encode a *visual* radius that grows with distance; clamp keeps them sane.
+    float dist = max(length(view_pos.xyz), 1.0);
+    float angular_size = max_scale / dist;
+
+    // Nearby objects (planets/spacecraft within ~100 AU): ensure visible and allow bigger cap.
+    float nearby_threshold = 1.5e13;  // ~100 AU
+    bool is_nearby = dist < nearby_threshold;
+
+    // Min angular size for nearby objects (~5px), max angular size:
+    // - stars capped at ~4px
+    // - nearby objects capped at ~40px
+    float min_angular = is_nearby ? 0.003 : 0.0;
+    float max_angular = is_nearby ? 0.02 : 0.002;
+
+    float effective_angular = clamp(angular_size, min_angular, max_angular);
+    float screen_scale = effective_angular * dist;
+
+    vec3 expanded_pos = view_pos.xyz + vec3(aQuadPos * screen_scale, 0.0);
     vec4 clip = uProj * vec4(expanded_pos, 1.0);
 
     // Log depth in [0,1] then convert to OpenGL NDC [-1,1]

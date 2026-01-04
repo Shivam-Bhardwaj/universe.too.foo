@@ -388,7 +388,7 @@ export class LocalCamera {
      */
     updateMaxLocalDistance(viewportHeight: number) {
         const targetPixels = viewportHeight * 0.10;  // 10% of viewport height
-        this.maxLocalDistanceM = computeMaxDistance(this.fovY, viewportHeight, targetPixels);
+        this.maxLocalDistanceM = computeMaxDistance(this.fovY, viewportHeight, this.anchorSystemRadiusM, targetPixels);
     }
 
     /**

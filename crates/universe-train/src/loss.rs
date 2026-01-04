@@ -68,7 +68,9 @@ pub fn log_scale_variance_loss<B: Backend>(log_scales: Tensor<B, 2>) -> Tensor<B
     let mean_log = log_scales.clone().mean_dim(1);
 
     // Broadcast mean to [N, 3] for subtraction
-    let mean_expanded = mean_log.unsqueeze_dim(1).repeat_dim(1, 3);
+    // Burn's `mean_dim` keeps the reduced dimension, so `mean_log` is already [N, 1].
+    // Avoid `unsqueeze_dim` here (can trigger rank-mismatch issues on some backends).
+    let mean_expanded = mean_log.repeat_dim(1, 3);
 
     // Variance from mean
     let deviation = log_scales - mean_expanded;

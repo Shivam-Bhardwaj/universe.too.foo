@@ -58,9 +58,23 @@ fn vs_main(
     // Calculate billboard size based on max scale
     let max_scale = max(splat.scale.x, max(splat.scale.y, splat.scale.z));
 
-    // Screen-space radius (perspective)
-    let dist = length(view_pos.xyz);
-    let screen_scale = max_scale;
+    // Screen-space sizing (perspective, clamp angular size).
+    // NOTE: star splats encode a *visual* radius that grows with distance; this keeps them sane on screen.
+    let dist = max(length(view_pos.xyz), 1.0);
+    let angular_size = max_scale / dist;
+
+    // Treat objects within ~100 AU as "nearby" (planets/spacecraft), allow a larger cap + minimum size.
+    let nearby_threshold = 1.5e13; // ~100 AU
+    let is_nearby = dist < nearby_threshold;
+
+    // Min angular size for nearby objects (~5px), max angular size:
+    // - stars capped at ~4px
+    // - nearby objects capped at ~40px
+    let min_angular = select(0.0, 0.003, is_nearby);
+    let max_angular = select(0.002, 0.02, is_nearby);
+
+    let effective_angular = clamp(angular_size, min_angular, max_angular);
+    let screen_scale = effective_angular * dist;
 
     // Expand billboard in view space (screen-aligned)
     let billboard_offset = vec3<f32>(quad_pos * screen_scale, 0.0);

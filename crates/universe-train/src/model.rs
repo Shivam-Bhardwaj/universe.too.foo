@@ -83,7 +83,10 @@ impl<B: Backend> GaussianCloud<B> {
     pub fn normalized_rotations(&self) -> Tensor<B, 2> {
         let r = self.rotations.val();
         let norm = r.clone().powf_scalar(2.0).sum_dim(1).sqrt();
-        r / norm.unsqueeze_dim(1)
+        // `sum_dim(1)` keeps the reduced dimension, so `norm` is [N,1].
+        // Some backends have issues broadcasting with an extra unsqueeze here; expand explicitly.
+        let norm4 = norm.repeat(&[1, 4]); // [N,1] -> [N,4]
+        r / norm4
     }
 
     /// Export to GaussianSplat vec

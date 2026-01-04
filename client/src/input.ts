@@ -317,7 +317,8 @@ export class LocalInputHandler {
                 // Handle digit keys as jump targets
                 if (code in NAV_TARGETS) {
                     const target = NAV_TARGETS[code];
-                    this.flightControls.startJump(target.pos, target.name, target.radius_m);
+                    // startJump(targetPos, targetName, targetId, targetRadiusM?)
+                    this.flightControls.startJump(target.pos, target.name, undefined, target.radius_m);
                 }
                 break;
         }

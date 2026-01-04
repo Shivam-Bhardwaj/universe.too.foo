@@ -132,6 +132,7 @@ export function computeRegimeBoundaryBlend(distanceM: number): number {
 export function computeMaxDistance(
     fovYRadians: number,
     viewportHeight: number,
+    systemRadiusM: number = HELIOSPHERE_RADIUS,
     targetPixels: number = 10
 ): number {
     // Angular size = 2 * atan(radius / distance)
@@ -141,7 +142,7 @@ export function computeMaxDistance(
     // distance = radius / tan(angular_size / 2)
 
     const angularSizeRad = (targetPixels / viewportHeight) * fovYRadians;
-    const maxDist = HELIOSPHERE_RADIUS / Math.tan(angularSizeRad / 2);
+    const maxDist = systemRadiusM / Math.tan(angularSizeRad / 2);
 
     // Clamp to reasonable intergalactic limit (~300 Mpc)
     return Math.min(maxDist, 1e25);
