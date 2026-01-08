@@ -14,17 +14,28 @@ struct Camera {
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 
-struct SplatData {
+// Raw float array to handle tight packing (14 floats/splat) vs WGSL alignment rules
+@group(0) @binding(1) var<storage, read> splats: array<f32>;
+
+struct Splat {
     pos: vec3<f32>,
-    _pad0: f32,
     scale: vec3<f32>,
-    _pad1: f32,
     rotation: vec4<f32>,
     color: vec3<f32>,
     opacity: f32,
 }
 
-@group(0) @binding(1) var<storage, read> splats: array<SplatData>;
+fn fetch_splat(idx: u32) -> Splat {
+    let offset = idx * 14u;
+    
+    let pos = vec3<f32>(splats[offset + 0u], splats[offset + 1u], splats[offset + 2u]);
+    let scale = vec3<f32>(splats[offset + 3u], splats[offset + 4u], splats[offset + 5u]);
+    let rotation = vec4<f32>(splats[offset + 6u], splats[offset + 7u], splats[offset + 8u], splats[offset + 9u]);
+    let color = vec3<f32>(splats[offset + 10u], splats[offset + 11u], splats[offset + 12u]);
+    let opacity = splats[offset + 13u];
+
+    return Splat(pos, scale, rotation, color, opacity);
+}
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -49,7 +60,7 @@ fn vs_main(
     @builtin(vertex_index) vertex_idx: u32,
     @builtin(instance_index) instance_idx: u32,
 ) -> VertexOutput {
-    let splat = splats[instance_idx];
+    let splat = fetch_splat(instance_idx);
     let quad_pos = QUAD_VERTICES[vertex_idx];
 
     // Transform splat center to view space
@@ -123,6 +134,3 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Premultiplied alpha output
     return vec4<f32>(in.color * alpha, alpha);
 }
-
-
-

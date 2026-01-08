@@ -46,7 +46,7 @@ export class WebGlSplatRenderer {
         }
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-        this.splatCount = Math.floor(gpuSplats.length / 16);
+        this.splatCount = Math.floor(gpuSplats.length / 14);
     }
 
     render(view: Float32Array, proj: Float32Array, far: number, logDepthC: number) {
@@ -211,26 +211,26 @@ void main() {
         gl.bufferData(gl.ARRAY_BUFFER, 4, gl.DYNAMIC_DRAW);
         this.instanceBufferBytes = 4;
 
-        const stride = 16 * 4; // bytes
+        const stride = 14 * 4; // 56 bytes
         // aPos @1: vec3 offset 0
         gl.enableVertexAttribArray(1);
         gl.vertexAttribPointer(1, 3, gl.FLOAT, false, stride, 0);
         gl.vertexAttribDivisor(1, 1);
-        // aScale @2: vec3 offset 16 bytes (float4)
+        // aScale @2: vec3 offset 12 bytes (float3)
         gl.enableVertexAttribArray(2);
-        gl.vertexAttribPointer(2, 3, gl.FLOAT, false, stride, 16);
+        gl.vertexAttribPointer(2, 3, gl.FLOAT, false, stride, 12);
         gl.vertexAttribDivisor(2, 1);
-        // aRot @3: vec4 offset 32 bytes (float8)
+        // aRot @3: vec4 offset 24 bytes (float6)
         gl.enableVertexAttribArray(3);
-        gl.vertexAttribPointer(3, 4, gl.FLOAT, false, stride, 32);
+        gl.vertexAttribPointer(3, 4, gl.FLOAT, false, stride, 24);
         gl.vertexAttribDivisor(3, 1);
-        // aColor @4: vec3 offset 48 bytes (float12)
+        // aColor @4: vec3 offset 40 bytes (float10)
         gl.enableVertexAttribArray(4);
-        gl.vertexAttribPointer(4, 3, gl.FLOAT, false, stride, 48);
+        gl.vertexAttribPointer(4, 3, gl.FLOAT, false, stride, 40);
         gl.vertexAttribDivisor(4, 1);
-        // aOpacity @5: float offset 60 bytes (float15)
+        // aOpacity @5: float offset 52 bytes (float13)
         gl.enableVertexAttribArray(5);
-        gl.vertexAttribPointer(5, 1, gl.FLOAT, false, stride, 60);
+        gl.vertexAttribPointer(5, 1, gl.FLOAT, false, stride, 52);
         gl.vertexAttribDivisor(5, 1);
 
         gl.bindBuffer(gl.ARRAY_BUFFER, null);

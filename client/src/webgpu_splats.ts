@@ -176,7 +176,7 @@ export class WebGpuSplatRenderer {
         }
 
         this.device.queue.writeBuffer(this.splatBuffer, 0, gpuSplats.buffer, gpuSplats.byteOffset, gpuSplats.byteLength);
-        this.splatCount = Math.floor(gpuSplats.length / 16);
+        this.splatCount = Math.floor(gpuSplats.length / 14);
     }
 
     render(cameraUniform: Float32Array) {
