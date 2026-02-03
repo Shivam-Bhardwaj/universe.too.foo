@@ -1,0 +1,290 @@
+[
+  {
+    "id": "galaxy-m31",
+    "name": "Andromeda Galaxy (M31)",
+    "kind": "galaxy",
+    "ra": 10.6847,
+    "dec": 41.2689,
+    "distance_ly": 2537000,
+    "description": "Nearest major galaxy to the Milky Way"
+  },
+  {
+    "id": "galaxy-m33",
+    "name": "Triangulum Galaxy (M33)",
+    "kind": "galaxy",
+    "ra": 23.4621,
+    "dec": 30.6602,
+    "distance_ly": 2730000,
+    "description": "Third-largest member of the Local Group"
+  },
+  {
+    "id": "galaxy-lmc",
+    "name": "Large Magellanic Cloud",
+    "kind": "galaxy",
+    "ra": 80.8942,
+    "dec": -69.7561,
+    "distance_ly": 160000,
+    "description": "Satellite galaxy of the Milky Way"
+  },
+  {
+    "id": "galaxy-smc",
+    "name": "Small Magellanic Cloud",
+    "kind": "galaxy",
+    "ra": 13.1867,
+    "dec": -72.8286,
+    "distance_ly": 200000,
+    "description": "Dwarf irregular galaxy satellite of the Milky Way"
+  },
+  {
+    "id": "galaxy-m81",
+    "name": "Bode's Galaxy (M81)",
+    "kind": "galaxy",
+    "ra": 148.8882,
+    "dec": 69.0653,
+    "distance_ly": 11800000,
+    "description": "Grand design spiral galaxy"
+  },
+  {
+    "id": "galaxy-m82",
+    "name": "Cigar Galaxy (M82)",
+    "kind": "galaxy",
+    "ra": 148.9683,
+    "dec": 69.6797,
+    "distance_ly": 11500000,
+    "description": "Starburst galaxy undergoing rapid star formation"
+  },
+  {
+    "id": "galaxy-m51",
+    "name": "Whirlpool Galaxy (M51)",
+    "kind": "galaxy",
+    "ra": 202.4696,
+    "dec": 47.1952,
+    "distance_ly": 23000000,
+    "description": "Interacting grand-design spiral galaxy"
+  },
+  {
+    "id": "galaxy-m104",
+    "name": "Sombrero Galaxy (M104)",
+    "kind": "galaxy",
+    "ra": 189.9976,
+    "dec": -11.6231,
+    "distance_ly": 29350000,
+    "description": "Unbarred spiral galaxy with prominent dust lane"
+  },
+  {
+    "id": "galaxy-ngc253",
+    "name": "Sculptor Galaxy (NGC 253)",
+    "kind": "galaxy",
+    "ra": 11.888,
+    "dec": -25.288,
+    "distance_ly": 11400000,
+    "description": "Intermediate spiral galaxy in Sculptor"
+  },
+  {
+    "id": "galaxy-centaurus-a",
+    "name": "Centaurus A (NGC 5128)",
+    "kind": "galaxy",
+    "ra": 201.3651,
+    "dec": -43.0191,
+    "distance_ly": 13050000,
+    "description": "Peculiar galaxy with distinctive dust lane"
+  },
+  {
+    "id": "nebula-m42",
+    "name": "Orion Nebula (M42)",
+    "kind": "nebula",
+    "ra": 83.8221,
+    "dec": -5.3911,
+    "distance_ly": 1344,
+    "description": "Diffuse nebula in the Milky Way, stellar nursery"
+  },
+  {
+    "id": "nebula-m1",
+    "name": "Crab Nebula (M1)",
+    "kind": "nebula",
+    "ra": 83.6331,
+    "dec": 22.0145,
+    "distance_ly": 6500,
+    "description": "Supernova remnant from 1054 AD explosion"
+  },
+  {
+    "id": "nebula-m57",
+    "name": "Ring Nebula (M57)",
+    "kind": "nebula",
+    "ra": 283.3962,
+    "dec": 33.0289,
+    "distance_ly": 2283,
+    "description": "Planetary nebula in Lyra"
+  },
+  {
+    "id": "nebula-m16",
+    "name": "Eagle Nebula (M16)",
+    "kind": "nebula",
+    "ra": 274.7,
+    "dec": -13.8167,
+    "distance_ly": 7000,
+    "description": "Star-forming region with Pillars of Creation"
+  },
+  {
+    "id": "nebula-m8",
+    "name": "Lagoon Nebula (M8)",
+    "kind": "nebula",
+    "ra": 270.9,
+    "dec": -24.3833,
+    "distance_ly": 4100,
+    "description": "Giant interstellar cloud in Sagittarius"
+  },
+  {
+    "id": "nebula-m20",
+    "name": "Trifid Nebula (M20)",
+    "kind": "nebula",
+    "ra": 270.6,
+    "dec": -23.0333,
+    "distance_ly": 5200,
+    "description": "Combination of emission, reflection, and dark nebula"
+  },
+  {
+    "id": "nebula-m17",
+    "name": "Omega Nebula (M17)",
+    "kind": "nebula",
+    "ra": 275.1958,
+    "dec": -16.1725,
+    "distance_ly": 5500,
+    "description": "H II region in Sagittarius, also known as Swan Nebula"
+  },
+  {
+    "id": "nebula-helix",
+    "name": "Helix Nebula (NGC 7293)",
+    "kind": "nebula",
+    "ra": 337.4108,
+    "dec": -20.8372,
+    "distance_ly": 655,
+    "description": "Closest planetary nebula to Earth"
+  },
+  {
+    "id": "nebula-rosette",
+    "name": "Rosette Nebula (NGC 2237)",
+    "kind": "nebula",
+    "ra": 97.9833,
+    "dec": 4.95,
+    "distance_ly": 5200,
+    "description": "Large spherical H II region"
+  },
+  {
+    "id": "nebula-horsehead",
+    "name": "Horsehead Nebula (Barnard 33)",
+    "kind": "nebula",
+    "ra": 85.2442,
+    "dec": -2.4583,
+    "distance_ly": 1500,
+    "description": "Dark nebula in Orion constellation"
+  },
+  {
+    "id": "cluster-m45",
+    "name": "Pleiades (M45)",
+    "kind": "cluster",
+    "ra": 56.601,
+    "dec": 24.1139,
+    "distance_ly": 444,
+    "description": "Open star cluster, the Seven Sisters"
+  },
+  {
+    "id": "cluster-hyades",
+    "name": "Hyades",
+    "kind": "cluster",
+    "ra": 66.75,
+    "dec": 15.8667,
+    "distance_ly": 153,
+    "description": "Nearest open cluster to Earth"
+  },
+  {
+    "id": "cluster-omega-centauri",
+    "name": "Omega Centauri (NGC 5139)",
+    "kind": "cluster",
+    "ra": 201.6969,
+    "dec": -47.4797,
+    "distance_ly": 15800,
+    "description": "Largest globular cluster in the Milky Way"
+  },
+  {
+    "id": "cluster-47-tuc",
+    "name": "47 Tucanae (NGC 104)",
+    "kind": "cluster",
+    "ra": 6.0236,
+    "dec": -72.0814,
+    "distance_ly": 14700,
+    "description": "Second-brightest globular cluster"
+  },
+  {
+    "id": "cluster-m13",
+    "name": "Hercules Cluster (M13)",
+    "kind": "cluster",
+    "ra": 250.4218,
+    "dec": 36.4614,
+    "distance_ly": 22200,
+    "description": "Great globular cluster in Hercules"
+  },
+  {
+    "id": "cluster-m22",
+    "name": "Sagittarius Cluster (M22)",
+    "kind": "cluster",
+    "ra": 279.0999,
+    "dec": -23.9048,
+    "distance_ly": 10600,
+    "description": "One of the brightest globular clusters"
+  },
+  {
+    "id": "cluster-m4",
+    "name": "Cat's Eye Cluster (M4)",
+    "kind": "cluster",
+    "ra": 245.8967,
+    "dec": -26.5256,
+    "distance_ly": 7200,
+    "description": "Closest globular cluster to Earth"
+  },
+  {
+    "id": "cluster-double",
+    "name": "Double Cluster (NGC 869/884)",
+    "kind": "cluster",
+    "ra": 34.75,
+    "dec": 57.1333,
+    "distance_ly": 7500,
+    "description": "Pair of open clusters in Perseus"
+  },
+  {
+    "id": "cluster-m35",
+    "name": "M35",
+    "kind": "cluster",
+    "ra": 92.25,
+    "dec": 24.35,
+    "distance_ly": 2800,
+    "description": "Open cluster in Gemini"
+  },
+  {
+    "id": "cluster-m44",
+    "name": "Beehive Cluster (M44)",
+    "kind": "cluster",
+    "ra": 130.025,
+    "dec": 19.9833,
+    "distance_ly": 577,
+    "description": "Open cluster also known as Praesepe"
+  },
+  {
+    "id": "region-galactic-center",
+    "name": "Galactic Center",
+    "kind": "region",
+    "ra": 266.4168,
+    "dec": -29.0078,
+    "distance_ly": 26000,
+    "description": "Center of the Milky Way, contains Sagittarius A*"
+  },
+  {
+    "id": "region-north-polar",
+    "name": "North Galactic Pole",
+    "kind": "region",
+    "ra": 192.8595,
+    "dec": 27.1284,
+    "distance_ly": 50000,
+    "description": "Direction perpendicular to galactic plane"
+  }
+]

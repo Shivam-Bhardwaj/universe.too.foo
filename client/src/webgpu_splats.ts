@@ -176,7 +176,8 @@ export class WebGpuSplatRenderer {
         }
 
         this.device.queue.writeBuffer(this.splatBuffer, 0, gpuSplats.buffer, gpuSplats.byteOffset, gpuSplats.byteLength);
-        this.splatCount = Math.floor(gpuSplats.length / 14);
+        // GPU instance layout is 16 floats (64 bytes) per splat (see `splat.wgsl`).
+        this.splatCount = Math.floor(gpuSplats.length / 16);
     }
 
     render(cameraUniform: Float32Array) {

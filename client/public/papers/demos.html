@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HELIOS Interactive Demos</title>
+    <link rel="stylesheet" href="css/demos.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Interactive Demos</h1>
+            <p>Explore the technology behind HELIOS</p>
+        </header>
+
+        <div class="demo-section">
+            <h2>1. Heliocentric Logarithmic Grid (HLG)</h2>
+            <p>
+                Visualize how the HLG partitions space into logarithmic radial levels and angular sectors.
+                Use the slider to adjust the grid level and see how cell sizes adapt with distance.
+            </p>
+            <div class="demo-controls">
+                <label>Radial Level: <span id="level-value">0</span></label>
+                <input type="range" id="level-slider" min="-3" max="5" value="0" step="1">
+            </div>
+            <canvas id="hlg-canvas" width="800" height="600"></canvas>
+        </div>
+
+        <div class="demo-section">
+            <h2>2. Gaussian Splatting Visualization</h2>
+            <p>
+                See how anisotropic 3D Gaussians are projected to 2D screen space and blended.
+                Adjust the Gaussian parameters to see their effect on the rendering.
+            </p>
+            <div class="demo-controls">
+                <label>Scale: <span id="scale-value">0.3</span></label>
+                <input type="range" id="scale-slider" min="0.1" max="1.0" value="0.3" step="0.05">
+
+                <label>Opacity: <span id="opacity-value">0.9</span></label>
+                <input type="range" id="opacity-slider" min="0.1" max="1.0" value="0.9" step="0.05">
+            </div>
+            <canvas id="gaussian-canvas" width="800" height="400"></canvas>
+        </div>
+
+        <div class="demo-section">
+            <h2>3. Training Convergence</h2>
+            <p>
+                Training metrics visualization. The plot shows loss decreasing over iterations.
+                Data is loaded from actual training runs or synthetic curves.
+            </p>
+            <canvas id="training-canvas" width="800" height="400"></canvas>
+            <div class="metrics">
+                <div class="metric">
+                    <strong>Initial Loss:</strong> <span id="initial-loss">Loading...</span>
+                </div>
+                <div class="metric">
+                    <strong>Final Loss:</strong> <span id="final-loss">Loading...</span>
+                </div>
+                <div class="metric">
+                    <strong>Reduction:</strong> <span id="reduction">Loading...</span>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p><a href="index.html">← Back to Papers</a> <a href="/">Back to Visualization</a></p>
+        </footer>
+    </div>
+
+    <script src="js/hlg_viz.js"></script>
+    <script src="js/gaussian_viz.js"></script>
+    <script src="js/training_viz.js"></script>
+</body>
+</html>

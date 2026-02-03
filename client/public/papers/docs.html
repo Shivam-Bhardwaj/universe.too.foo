@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HELIOS Technical Documentation</title>
+    <link rel="stylesheet" href="css/paper.css">
+    <style>
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.95em;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background: #f4f4f4;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <article>
+        <header>
+            <h1>HELIOS Technical Documentation</h1>
+            <div class="subtitle">System Architecture and Developer Guide</div>
+        </header>
+
+        <section>
+            <h2>1. System Overview</h2>
+            <p>
+                HELIOS consists of three main components:
+            </p>
+            <ul>
+                <li><strong>Data Pipeline</strong>: Processes astronomical catalogs into HLG cells</li>
+                <li><strong>Training Pipeline</strong>: Optimizes Gaussian splat representations</li>
+                <li><strong>Rendering Engine</strong>: WebGPU-based browser client</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>2. Data Pipeline</h2>
+
+            <h3>2.1 Input Formats</h3>
+            <table>
+                <tr>
+                    <th>Source</th>
+                    <th>Format</th>
+                    <th>Fields</th>
+                </tr>
+                <tr>
+                    <td>MPCORB</td>
+                    <td>CSV</td>
+                    <td>a, e, i, Ω, ω, M, H, epoch</td>
+                </tr>
+                <tr>
+                    <td>Gaia DR3</td>
+                    <td>CSV</td>
+                    <td>ra, dec, parallax, pmra, pmdec, phot_g_mean_mag</td>
+                </tr>
+                <tr>
+                    <td>Synthetic</td>
+                    <td>Generated</td>
+                    <td>Random positions, colors</td>
+                </tr>
+            </table>
+
+            <h3>2.2 Build Command</h3>
+            <pre><code>cargo run --release -p universe-cli -- build \
+    --output universe \
+    --synthetic 1000</code></pre>
+
+            <h3>2.3 Output Structure</h3>
+            <pre><code>universe/
+├── index.json          # Cell manifest
+└── cells/
+    ├── 0_0_0.bin       # Cell (l=0, θ=0, φ=0)
+    ├── 0_0_1.bin
+    └── ...</code></pre>
+
+            <h3>2.4 Cell Binary Format</h3>
+            <p>Each <code>.bin</code> file contains LZ4-compressed MessagePack data:</p>
+            <pre><code>{
+  "metadata": {
+    "id": {"l": 0, "theta": 0, "phi": 0},
+    "bounds": {"min": [...], "max": [...], "centroid": [...]},
+    "splat_count": 147
+  },
+  "splats": [
+    {
+      "pos": [x, y, z],
+      "scale": [sx, sy, sz],
+      "rotation": [qx, qy, qz, qw],
+      "color": [r, g, b],
+      "opacity": a
+    },
+    ...
+  ]
+}</code></pre>
+        </section>
+
+        <section>
+            <h2>3. Training Pipeline</h2>
+
+            <h3>3.1 Command Reference</h3>
+            <pre><code># Train all cells
+cargo run --release -p universe-cli -- train-all \
+    --input universe \
+    --output universe_trained \
+    --iterations 1000 \
+    --learning-rate 0.001 \
+    --views-per-iter 4
+
+# Train single cell
+cargo run -p universe-cli -- train-cell \
+    --cell universe/cells/0_0_0.bin \
+    --output trained_cell.bin</code></pre>
+
+            <h3>3.2 Training Parameters</h3>
+            <table>
+                <tr>
+                    <th>Parameter</th>
+                    <th>Default</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <td><code>--iterations</code></td>
+                    <td>1000</td>
+                    <td>Gradient descent steps per cell</td>
+                </tr>
+                <tr>
+                    <td><code>--learning-rate</code></td>
+                    <td>0.001</td>
+                    <td>Adam optimizer learning rate</td>
+                </tr>
+                <tr>
+                    <td><code>--views-per-iter</code></td>
+                    <td>4</td>
+                    <td>Camera views per iteration</td>
+                </tr>
+                <tr>
+                    <td><code>--image-size</code></td>
+                    <td>256×256</td>
+                    <td>Render resolution</td>
+                </tr>
+                <tr>
+                    <td><code>--lambda-dssim</code></td>
+                    <td>0.2</td>
+                    <td>D-SSIM loss weight</td>
+                </tr>
+            </table>
+
+            <h3>3.3 Loss Function</h3>
+            <pre><code>loss = (1 - λ) * L1(rendered, gt) + λ * D-SSIM(rendered, gt)
+     = 0.8 * L1 + 0.2 * D-SSIM</code></pre>
+
+            <h3>3.4 Validation Scripts</h3>
+            <pre><code># Run full training pipeline
+bash scripts/train_validation.sh
+
+# Validate results
+bash scripts/validate_training.sh
+
+# Generate report with plots
+python3 scripts/generate_training_report.py</code></pre>
+        </section>
+
+        <section>
+            <h2>4. Rendering Architecture</h2>
+
+            <h3>4.1 WebGPU Pipeline</h3>
+            <p>The browser client uses a custom WebGPU compute pipeline:</p>
+            <ol>
+                <li><strong>Project Shader</strong>: Transform Gaussians to screen space</li>
+                <li><strong>Sort</strong>: Depth-sort splats (bitonic sort on GPU)</li>
+                <li><strong>Rasterize Shader</strong>: Alpha-blend Gaussians to framebuffer</li>
+            </ol>
+
+            <h3>4.2 Streaming System</h3>
+            <p>Cells are loaded on-demand based on camera frustum culling:</p>
+            <pre><code>class CellLoader {
+  async loadCell(cellId) {
+    const response = await fetch(`/universe/cells/${cellId}.bin`);
+    const compressed = await response.arrayBuffer();
+    const decompressed = lz4.decompress(compressed);
+    return msgpack.decode(decompressed);
+  }
+}</code></pre>
+
+            <h3>4.3 Camera Controls</h3>
+            <table>
+                <tr>
+                    <th>Input</th>
+                    <th>Action</th>
+                </tr>
+                <tr>
+                    <td>WASD</td>
+                    <td>Move camera</td>
+                </tr>
+                <tr>
+                    <td>Mouse</td>
+                    <td>Look around</td>
+                </tr>
+                <tr>
+                    <td>Space / Shift</td>
+                    <td>Move up / down</td>
+                </tr>
+                <tr>
+                    <td>Q / E</td>
+                    <td>Slow / fast movement</td>
+                </tr>
+                <tr>
+                    <td>1-6</td>
+                    <td>Jump to planet</td>
+                </tr>
+            </table>
+        </section>
+
+        <section>
+            <h2>5. Development Guide</h2>
+
+            <h3>5.1 Project Structure</h3>
+            <pre><code>HELIOS/
+├── crates/
+│   ├── universe-core/       # Shared types, HLG grid
+│   ├── universe-data/       # Data structures, serialization
+│   ├── universe-raster/     # WebGPU rasterizer
+│   ├── universe-train/      # Training pipeline
+│   └── universe-cli/        # CLI tool
+├── client/                  # Browser client
+│   ├── src/
+│   │   ├── main.ts
+│   │   ├── client.ts
+│   │   └── input.ts
+│   └── public/
+│       ├── universe/        # Dataset (cells, index.json)
+│       └── papers/          # Research papers site
+└── src/
+    └── shaders/             # WGSL shaders</code></pre>
+
+            <h3>5.2 Building from Source</h3>
+            <pre><code># Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Clone repository
+git clone https://github.com/yourusername/HELIOS.git
+cd HELIOS
+
+# Build CLI
+cargo build --release -p universe-cli
+
+# Build client
+cd client
+npm install
+npm run build</code></pre>
+
+            <h3>5.3 Running Tests</h3>
+            <pre><code># Run all tests
+cargo test --all
+
+# Test specific crate
+cargo test -p universe-train
+
+# Test with logging
+RUST_LOG=debug cargo test test_training_loop_convergence</code></pre>
+        </section>
+
+        <section>
+            <h2>6. Performance Tuning</h2>
+
+            <h3>6.1 Training Performance</h3>
+            <ul>
+                <li>Use <code>--release</code> build (10-100× faster)</li>
+                <li>Reduce <code>--image-size</code> if memory limited</li>
+                <li>Reduce <code>--views-per-iter</code> for faster iterations</li>
+                <li>GPU backend possible but not critical for current scale</li>
+            </ul>
+
+            <h3>6.2 Rendering Performance</h3>
+            <ul>
+                <li>Target 60 FPS at 1920×1080</li>
+                <li>Cell culling based on frustum</li>
+                <li>LRU cache for loaded cells</li>
+                <li>GPU compute shaders for projection and blending</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>7. API Reference</h2>
+
+            <h3>7.1 CLI Commands</h3>
+            <pre><code># Build dataset
+universe-cli build [OPTIONS]
+    --output &lt;PATH&gt;       Output directory
+    --synthetic &lt;N&gt;       Generate N synthetic stars
+    --mpcorb &lt;PATH&gt;       Use MPCORB CSV file
+    --gaia &lt;PATH&gt;         Use Gaia CSV file
+
+# Train all cells
+universe-cli train-all [OPTIONS]
+    --input &lt;PATH&gt;        Input dataset directory
+    --output &lt;PATH&gt;       Output directory
+    --iterations &lt;N&gt;      Training iterations (default: 1000)
+    --learning-rate &lt;F&gt;   Learning rate (default: 0.001)
+    --views-per-iter &lt;N&gt;  Views per iteration (default: 4)
+    --image-size &lt;N&gt;      Render size (default: 256)
+    --lambda-dssim &lt;F&gt;    D-SSIM weight (default: 0.2)
+
+# Serve dataset
+universe-cli serve [OPTIONS]
+    --dataset &lt;PATH&gt;      Dataset directory (default: universe)
+    --port &lt;N&gt;            Server port (default: 8080)</code></pre>
+        </section>
+
+        <section>
+            <h2>8. Troubleshooting</h2>
+
+            <h3>8.1 Common Issues</h3>
+            <ul>
+                <li><strong>Out of memory during training</strong>: Reduce <code>--image-size</code> to 128 or lower</li>
+                <li><strong>Loss not decreasing</strong>: Try different learning rates (0.01 or 0.0001)</li>
+                <li><strong>WebGPU not available</strong>: Use Chrome/Edge with GPU acceleration enabled</li>
+                <li><strong>Cells not loading</strong>: Check browser console for CORS or network errors</li>
+            </ul>
+
+            <h3>8.2 Debug Logging</h3>
+            <pre><code># Enable detailed logging
+RUST_LOG=debug cargo run ...
+
+# Log specific module
+RUST_LOG=universe_train=debug cargo run ...</code></pre>
+        </section>
+
+        <footer>
+            <p><a href="index.html">← Back to Papers</a> | <a href="/">Back to Visualization</a></p>
+        </footer>
+    </article>
+</body>
+</html>

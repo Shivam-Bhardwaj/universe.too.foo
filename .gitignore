@@ -13,6 +13,13 @@
 /assets/
 __pycache__/
 .venv/
+venv/
+
+# Data directories (keep locally, copy via archive, don't track in git)
+/universe_*/
+/_local_untracked_backup*/
+/training*/
+*.bin
 
 # Large legacy data (keep locally, don't commit)
 /legacy assets/
@@ -25,3 +32,4 @@ __pycache__/
 .DS_Store
 
 
+venv/

@@ -14,7 +14,15 @@ struct Camera {
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 
-// Raw float array to handle tight packing (14 floats/splat) vs WGSL alignment rules
+// Raw float array (16 floats/instance) so we can keep vec3 fields aligned in a GPU-friendly layout.
+// Layout:
+// 0-2: pos (x,y,z)
+// 3:   pad
+// 4-6: scale (x,y,z)
+// 7:   pad
+// 8-11: rotation (quat xyzw)
+// 12-14: color (rgb)
+// 15: opacity
 @group(0) @binding(1) var<storage, read> splats: array<f32>;
 
 struct Splat {
@@ -26,13 +34,13 @@ struct Splat {
 }
 
 fn fetch_splat(idx: u32) -> Splat {
-    let offset = idx * 14u;
+    let offset = idx * 16u;
     
     let pos = vec3<f32>(splats[offset + 0u], splats[offset + 1u], splats[offset + 2u]);
-    let scale = vec3<f32>(splats[offset + 3u], splats[offset + 4u], splats[offset + 5u]);
-    let rotation = vec4<f32>(splats[offset + 6u], splats[offset + 7u], splats[offset + 8u], splats[offset + 9u]);
-    let color = vec3<f32>(splats[offset + 10u], splats[offset + 11u], splats[offset + 12u]);
-    let opacity = splats[offset + 13u];
+    let scale = vec3<f32>(splats[offset + 4u], splats[offset + 5u], splats[offset + 6u]);
+    let rotation = vec4<f32>(splats[offset + 8u], splats[offset + 9u], splats[offset + 10u], splats[offset + 11u]);
+    let color = vec3<f32>(splats[offset + 12u], splats[offset + 13u], splats[offset + 14u]);
+    let opacity = splats[offset + 15u];
 
     return Splat(pos, scale, rotation, color, opacity);
 }

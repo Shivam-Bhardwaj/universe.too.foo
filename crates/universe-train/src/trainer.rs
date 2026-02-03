@@ -100,6 +100,12 @@ impl<B: AutodiffBackend> Trainer<B> {
             return Ok(vec![]);
         }
 
+        // Skip training for cells with < 2 splats (no benefit, and causes tensor shape issues)
+        if cell.splats.len() < 2 {
+            tracing::info!("Skipping cell with {} splat(s) - no training benefit", cell.splats.len());
+            return Ok(cell.splats.clone());
+        }
+
         // Extract initial splat data
         let positions: Vec<_> = cell.splats.iter().map(|s| s.pos).collect();
         let scales: Vec<_> = cell.splats.iter().map(|s| s.scale).collect();

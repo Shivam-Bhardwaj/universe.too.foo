@@ -1,0 +1,43 @@
+<svg width="600" height="400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .label { font-family: monospace; font-size: 12px; fill: #333; }
+      .title { font-family: sans-serif; font-size: 16px; font-weight: bold; fill: #333; }
+      .grid { stroke: #667eea; stroke-width: 1; fill: none; }
+      .sector { stroke: #764ba2; stroke-width: 0.5; fill: none; opacity: 0.6; }
+      .sun { fill: #FDB813; }
+    </style>
+  </defs>
+
+  <text x="300" y="25" class="title" text-anchor="middle">Heliocentric Logarithmic Grid (HLG)</text>
+
+  <!-- Sun at center -->
+  <circle cx="300" cy="200" r="8" class="sun"/>
+
+  <!-- Radial levels (circles) -->
+  <circle cx="300" cy="200" r="40" class="grid"/>
+  <circle cx="300" cy="200" r="80" class="grid"/>
+  <circle cx="300" cy="200" r="160" class="grid"/>
+
+  <!-- Angular sectors -->
+  <line x1="300" y1="200" x2="460" y2="200" class="sector"/>
+  <line x1="300" y1="200" x2="370" y2="313" class="sector"/>
+  <line x1="300" y1="200" x2="230" y2="313" class="sector"/>
+  <line x1="300" y1="200" x2="140" y2="200" class="sector"/>
+  <line x1="300" y1="200" x2="230" y2="87" class="sector"/>
+  <line x1="300" y1="200" x2="370" y2="87" class="sector"/>
+
+  <!-- Labels -->
+  <text x="470" y="205" class="label">L=0</text>
+  <text x="485" y="205" class="label">(0-1 AU)</text>
+
+  <text x="390" y="205" class="label">L=1</text>
+  <text x="405" y="215" class="label">(1-2 AU)</text>
+
+  <text x="470" y="185" class="label">L=2</text>
+  <text x="485" y="195" class="label">(2-4 AU)</text>
+
+  <text x="300" y="380" class="label" text-anchor="middle">
+    Logarithmic radial bins + angular sectors
+  </text>
+</svg>

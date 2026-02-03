@@ -85,9 +85,10 @@ pub fn log_scale_variance_loss<B: Backend>(log_scales: Tensor<B, 2>) -> Tensor<B
 pub fn scale_collapse_loss<B: Backend>(scales: Tensor<B, 2>, min_ratio: f32) -> Tensor<B, 1> {
     // scales: [N, 3]
     // Get min and max scale per splat
-    // min_dim(1) returns [N, 1], squeeze to [N]
-    let min_scale: Tensor<B, 1> = scales.clone().min_dim(1).squeeze();
-    let max_scale: Tensor<B, 1> = scales.max_dim(1).squeeze();
+    // min_dim(1) returns [N, 1], squeeze dim 1 to get [N]
+    // Use squeeze_dims to preserve at least 1 dimension (handles N=1 case)
+    let min_scale: Tensor<B, 1> = scales.clone().min_dim(1).squeeze_dims(&[1]);
+    let max_scale: Tensor<B, 1> = scales.max_dim(1).squeeze_dims(&[1]);
 
     // Compute ratio with small epsilon to avoid division by zero
     let ratio = min_scale / (max_scale + 1e-8);

@@ -660,14 +660,11 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         scored.sort((a, b) => a.d2 - b.d2);
 
         const out: (typeof manifest.cells) = [];
-        let splats = 0;
         for (const s of scored) {
             if (out.length >= maxCells) break;
             const n = s.e.splat_count || 0;
             if (n <= 0) continue;
-            if (splats + n > maxSplats) continue;
             out.push(s.e);
-            splats += n;
         }
         return out;
     };
@@ -725,14 +722,11 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         });
 
         const out: (typeof manifest.cells) = [];
-        let splats = 0;
         for (const c of candidates) {
             if (out.length >= maxCells) break;
             const n = c.e.splat_count || 0;
             if (n <= 0) continue;
-            if (splats + n > maxSplats) continue;
             out.push(c.e);
-            splats += n;
         }
         return out;
     };
@@ -1906,7 +1900,10 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
           }
         | null = null;
 
-    const selectionMode = (params.get('select') ?? 'distance').toLowerCase();
+    // Default to view-based selection so the starfield follows where you look.
+    // Distance-based selection can bias toward a slice of the sky at astronomical scales
+    // (camera translation is negligible vs star distances).
+    const selectionMode = (params.get('select') ?? 'view').toLowerCase();
 
     const computeTargetEntries = () => {
         // Small datasets: if we can afford it, load everything (fast + avoids "dark" sparse view).
@@ -2012,18 +2009,115 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         const targetStarSplats = desiredEntries.reduce((sum, e) => sum + (e.splat_count || 0), 0);
         const targetSplats = Math.min(maxSplats, targetStarSplats);
 
-        // Count how many splats we can actually render from loaded cells.
-        let starCount = 0;
+        // Collect loaded star cells and decide how many splats to take from each.
+        // Key idea: when `maxSplats` is smaller than the visible set, we should *spread*
+        // the budget across many cells so the view doesn't collapse into a single wedge/slice.
+        type StarSource = {
+            file: string;
+            centroidX: number;
+            centroidY: number;
+            centroidZ: number;
+            splats14: Float32Array;
+            available: number; // min(manifest count, decoded count)
+        };
+
+        const starSources: StarSource[] = [];
+        let starAvailableTotal = 0;
         let loadedInViewCells = 0;
         for (const e of desiredEntries) {
             const c = loaded.get(e.file_name);
             if (!c) continue;
             loadedInViewCells++;
-            const n = Math.min(e.splat_count || 0, c.splatCount, targetSplats - starCount);
-            if (n <= 0) continue;
-            starCount += n;
-            if (starCount >= targetSplats) break;
+            const available = Math.min(e.splat_count || 0, c.splatCount);
+            if (available <= 0) continue;
+            starSources.push({
+                file: e.file_name,
+                centroidX: c.centroidX,
+                centroidY: c.centroidY,
+                centroidZ: c.centroidZ,
+                splats14: c.splats14,
+                available,
+            });
+            starAvailableTotal += available;
         }
+
+        const starCount = Math.min(targetSplats, starAvailableTotal);
+
+        const hash32 = (s: string): number => {
+            // FNV-1a 32-bit
+            let h = 2166136261;
+            for (let i = 0; i < s.length; i++) {
+                h ^= s.charCodeAt(i);
+                h = Math.imul(h, 16777619);
+            }
+            return h >>> 0;
+        };
+
+        // How many splats to take per loaded cell, sums to `starCount`.
+        const takePerCell: number[] = (() => {
+            const take = new Array<number>(starSources.length).fill(0);
+            if (starCount <= 0 || starSources.length === 0) return take;
+
+            // Base: 1 per cell so coverage spans the view (when possible).
+            let remaining = starCount;
+            for (let i = 0; i < starSources.length && remaining > 0; i++) {
+                const base = Math.min(1, starSources[i].available);
+                take[i] = base;
+                remaining -= base;
+            }
+            if (remaining <= 0) return take;
+
+            // Distribute remaining proportionally to remaining capacity.
+            let capTotal = 0;
+            for (let i = 0; i < starSources.length; i++) capTotal += starSources[i].available - take[i];
+            if (capTotal <= 0) return take;
+
+            const remainders: Array<{ i: number; rem: number }> = [];
+            let assigned = 0;
+            for (let i = 0; i < starSources.length; i++) {
+                const cap = starSources[i].available - take[i];
+                if (cap <= 0) continue;
+                const ideal = (remaining * cap) / capTotal;
+                const extra = Math.min(cap, Math.floor(ideal));
+                if (extra > 0) {
+                    take[i] += extra;
+                    assigned += extra;
+                }
+                remainders.push({ i, rem: ideal - extra });
+            }
+
+            let leftover = remaining - assigned;
+            if (leftover > 0 && remainders.length > 0) {
+                remainders.sort((a, b) => b.rem - a.rem);
+                // First pass: give +1 to the highest fractional remainders that still have capacity.
+                for (let k = 0; k < remainders.length && leftover > 0; k++) {
+                    const idx = remainders[k].i;
+                    if (take[idx] < starSources[idx].available) {
+                        take[idx]++;
+                        leftover--;
+                    }
+                }
+
+                // Fallback: if some of the top remainders saturated early, fill any remaining capacity.
+                if (leftover > 0) {
+                    const byCap = remainders
+                        .map((r) => r.i)
+                        .sort(
+                            (a, b) =>
+                                (starSources[b].available - take[b]) - (starSources[a].available - take[a]),
+                        );
+                    for (let k = 0; k < byCap.length && leftover > 0; k++) {
+                        const idx = byCap[k];
+                        const capLeft = starSources[idx].available - take[idx];
+                        if (capLeft <= 0) continue;
+                        const add = Math.min(capLeft, leftover);
+                        take[idx] += add;
+                        leftover -= add;
+                    }
+                }
+            }
+            return take;
+        })();
 
         // Generate Oort Cloud if camera is far enough out (> 100 AU)
         const cameraDist = Math.sqrt(camera.position.x ** 2 + camera.position.y ** 2 + camera.position.z ** 2);
@@ -2050,28 +2144,36 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
         const worldPos = new Float64Array(totalInstances * 3);
         const gpu = new Float32Array(totalInstances * 16);
 
-        // Fill stars
-        let cursor = 0;
-        for (const e of desiredEntries) {
-            if (cursor >= starCount) break;
-            const c = loaded.get(e.file_name);
-            if (!c) continue;
-            const n = Math.min(e.splat_count || 0, c.splatCount, starCount - cursor);
-            if (n <= 0) continue;
+        // Fill stars (balanced across cells)
+        const currentJD = timeController.getJulianDate();
+        const hasTimeOffset = Math.abs(currentJD - J2000_JD) > 1;
 
-            const splats14 = c.splats14;
-            for (let i = 0; i < n; i++) {
-                const src = i * 14;
-                const splatIdx = cursor + i;
+        let cursor = 0;
+        for (let s = 0; s < starSources.length; s++) {
+            const n = takePerCell[s] || 0;
+            if (n <= 0) continue;
+            if (cursor >= starCount) break;
+
+            const srcCell = starSources[s];
+            const available = srcCell.available;
+            const splats14 = srcCell.splats14;
+
+            // Deterministic sampling across the cell's splats (avoid always taking the first N).
+            const offset = available > 0 ? hash32(srcCell.file) % available : 0;
+            const step = available / Math.max(1, n);
+
+            for (let i = 0; i < n && cursor < starCount; i++) {
+                const pick = (offset + Math.floor(i * step)) % Math.max(1, available);
+                const src = pick * 14;
+                const splatIdx = cursor++;
 
                 const dst3 = splatIdx * 3;
-                const baseX = c.centroidX + splats14[src + 0];
-                const baseY = c.centroidY + splats14[src + 1];
-                const baseZ = c.centroidZ + splats14[src + 2];
+                const baseX = srcCell.centroidX + splats14[src + 0];
+                const baseY = srcCell.centroidY + splats14[src + 1];
+                const baseZ = srcCell.centroidZ + splats14[src + 2];
 
                 // Apply stellar proper motion based on time offset
-                const currentJD = timeController.getJulianDate();
-                if (Math.abs(currentJD - J2000_JD) > 1) {  // Only if time offset exists
+                if (hasTimeOffset) {  // Only if time offset exists
                     // Generate deterministic velocity based on position
                     const seed = Math.abs(Math.floor(baseX + baseY * 1000 + baseZ * 1000000));
                     const velocity = estimateStellarVelocity(baseX, baseY, baseZ, seed);
@@ -2115,8 +2217,6 @@ async function runDatasetMode(dom: Dom, params: URLSearchParams): Promise<boolea
                 gpu[dst16 + 14] = splats14[src + 12];
                 gpu[dst16 + 15] = splats14[src + 13];
             }
-
-            cursor += n;
         }
 
         // Fill solar bodies after stars

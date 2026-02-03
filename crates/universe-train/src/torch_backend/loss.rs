@@ -113,6 +113,7 @@ pub fn combined_loss(rendered: &Tensor, target: &Tensor, lambda_dssim: f32) -> T
 /// - lambda_dssim: Weight for D-SSIM loss (typically 0.2)
 /// - lambda_isotropy: Weight for isotropy regularization (typically 0.01)
 /// - lambda_collapse: Weight for collapse prevention (typically 0.1)
+/// - min_scale_ratio: Minimum allowed ratio of min/max scale (typically 0.1-0.2)
 pub fn full_loss_with_regularization(
     rendered: &Tensor,
     target: &Tensor,
@@ -121,6 +122,7 @@ pub fn full_loss_with_regularization(
     lambda_dssim: f32,
     lambda_isotropy: f32,
     lambda_collapse: f32,
+    min_scale_ratio: f32,
 ) -> (Tensor, LossComponents) {
     // Image-space losses
     let l1 = l1_loss(rendered, target);
@@ -129,7 +131,7 @@ pub fn full_loss_with_regularization(
 
     // 3D geometry regularization
     let isotropy = log_scale_variance_loss(log_scales);
-    let collapse = scale_collapse_loss(scales, 0.1); // Min axis must be >= 10% of max
+    let collapse = scale_collapse_loss(scales, min_scale_ratio as f64);
 
     // Total loss
     let total = &image_loss

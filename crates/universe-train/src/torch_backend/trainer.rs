@@ -233,6 +233,7 @@ impl TorchTrainer {
                     self.config.lambda_dssim,
                     self.config.lambda_isotropy,
                     self.config.lambda_collapse,
+                    self.config.min_scale_ratio,
                 );
 
                 let loss_val: f32 = loss_components.total;
